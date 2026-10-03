@@ -27,10 +27,12 @@ func (f *fakeSigner) SignTrade(_ context.Context, _, _, _ string) (string, error
 }
 
 type fakeGateway struct {
-	uploads   []StickerUpload
-	uploadRes []domain.Result // 按调用顺序返回
-	user      domain.User
-	userErr   error
+	uploads    []StickerUpload
+	uploadRes  []domain.Result // 按调用顺序返回
+	user       domain.User
+	userErr    error
+	loginToken string
+	loginErr   error
 }
 
 func (f *fakeGateway) UploadSticker(_ context.Context, req StickerUpload) (domain.Result, error) {
@@ -52,7 +54,7 @@ func (f *fakeGateway) SendLoginSms(_ context.Context, _ string) error {
 }
 
 func (f *fakeGateway) LoginByPhone(_ context.Context, _ PhoneLogin) (string, error) {
-	return "", nil
+	return f.loginToken, f.loginErr
 }
 
 func okResult() domain.Result {

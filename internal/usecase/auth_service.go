@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"regexp"
 )
 
@@ -39,11 +40,29 @@ func (s *AuthService) Login(ctx context.Context, phone, code, ticket string) (Au
 
 	token, err := s.gateway.LoginByPhone(ctx, PhoneLogin{Phone: phone, Code: code, Ticket: ticket})
 	if err != nil {
-		return AuthOutput{}, err
+		return AuthOutput{}, translateLoginError(err)
 	}
 	user, err := s.gateway.UserInfo(ctx, token)
 	if err != nil {
 		return AuthOutput{}, err
 	}
 	return AuthOutput{Token: token, User: user}, nil
+}
+
+// misleadingLoginCodes 的上游文案对用户有误导：500010005 字面是"请升级APP至最新版本"，
+// 实测出现在反滥用校验（人机 ticket / 签名）未通过时，与 App 版本无关。
+// 登录语境下替换为可操作的提示，业务码原样保留（httpapi 会把 code 一并发给前端）。
+var misleadingLoginCodes = map[int]string{
+	500010005: "人机验证未通过或已失效，请重试",
+}
+
+func translateLoginError(err error) error {
+	var be *BusinessError
+	if !errors.As(err, &be) {
+		return err
+	}
+	if hint, ok := misleadingLoginCodes[be.Code]; ok {
+		return &BusinessError{Code: be.Code, Message: hint}
+	}
+	return err
 }
