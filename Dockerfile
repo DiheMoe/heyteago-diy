@@ -3,16 +3,11 @@ WORKDIR /src
 COPY go.mod ./
 COPY cmd ./cmd
 COPY internal ./internal
-RUN go build -o /out/server ./cmd/server
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/server ./cmd/server
 
-FROM python:3.13-slim AS pydeps
-RUN pip install --no-cache-dir unicorn pyelftools requests cryptography
-
-FROM eclipse-temurin:21-jre
-WORKDIR /app
-COPY --from=build /out/server ./server
-COPY --from=pydeps /usr/local /usr/local
-COPY bin/sign-oracle.jar bin/libheyteago.so bin/libsdk_core.so ./bin/
-COPY tools/secure-ticket ./tools/secure-ticket
+FROM gcr.io/distroless/static-debian12:nonroot
+# 显式带上 CA 证书，保证到 app-go.heytea.com 的出网 HTTPS 可用。
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /out/server /server
 EXPOSE 8790
-CMD ["./server"]
+ENTRYPOINT ["/server"]

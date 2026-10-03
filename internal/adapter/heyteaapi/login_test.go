@@ -9,12 +9,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/DiheMoe/heyteago-diy/internal/adapter/secureticket"
+	"github.com/DiheMoe/heyteago-diy/internal/adapter/appsecure"
 	"github.com/DiheMoe/heyteago-diy/internal/usecase"
 )
 
@@ -378,18 +376,12 @@ func TestLoginByPhoneEncryptedResponse(t *testing.T) {
 
 // 真实网关探针：加密请求体穿透网关到达业务层（非法手机号返回业务错误码而非
 // HTTP 400 invalid_payload），证明 Secure-Transmission 加解密链路端到端可用。
-// 需要网络、python3 + unicorn 与 bin/libsdk_core.so。
+// 仅需网络。
 func TestLiveSendLoginSms(t *testing.T) {
 	if os.Getenv("HEYTEA_TEST_LIVE") != "1" {
 		t.Skip("set HEYTEA_TEST_LIVE=1 to run")
 	}
-	// DefaultConfig 用相对路径，按仓库根目录（本文件上三级）解析。
-	_, file, _, _ := runtime.Caller(0)
-	root := filepath.Join(filepath.Dir(file), "..", "..", "..")
-	cfg := secureticket.DefaultConfig()
-	cfg.ScriptPath = filepath.Join(root, "tools", "secure-ticket", "secure_ticket.py")
-	cfg.SoPath = filepath.Join(root, "bin", "libsdk_core.so")
-	src := secureticket.New(cfg)
+	src := appsecure.New(appsecure.DefaultConfig())
 	defer src.Close()
 
 	c := New(noopSigner{}, src)
