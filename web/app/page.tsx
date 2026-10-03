@@ -315,7 +315,16 @@ export default function Page() {
       </div>
 
       <footer className="mt-10 text-center text-xs text-neutral-400">
-        仅供学习测试使用 · 接口思路参考{" "}
+        仅供学习测试使用 · 开源地址{" "}
+        <a
+          href="https://github.com/DiheMoe/heyteago-diy"
+          target="_blank"
+          rel="noreferrer"
+          className="underline decoration-dotted hover:text-neutral-600"
+        >
+          DiheMoe/heyteago-diy
+        </a>{" "}
+        · 接口思路参考{" "}
         <a
           href="https://github.com/FuQuan233/HeyTea_AutoUpload"
           target="_blank"
