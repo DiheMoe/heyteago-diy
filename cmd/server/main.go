@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"heyteago-diy/internal/adapter/heyteaapi"
-	"heyteago-diy/internal/adapter/signoracle"
-	"heyteago-diy/internal/transport/httpapi"
-	"heyteago-diy/internal/usecase"
+	"github.com/DiheMoe/heyteago-diy/internal/adapter/heyteaapi"
+	"github.com/DiheMoe/heyteago-diy/internal/adapter/signoracle"
+	"github.com/DiheMoe/heyteago-diy/internal/transport/httpapi"
+	"github.com/DiheMoe/heyteago-diy/internal/usecase"
 )
 
 func main() {

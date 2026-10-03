@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"heyteago-diy/internal/domain"
+	"github.com/DiheMoe/heyteago-diy/internal/domain"
 )
 
 type fakeSigner struct {

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"heyteago-diy/internal/usecase"
+	"github.com/DiheMoe/heyteago-diy/internal/usecase"
 )
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Server) {

@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"heyteago-diy/internal/domain"
+	"github.com/DiheMoe/heyteago-diy/internal/domain"
 )
 
 // Signer 为图片内容计算喜茶上传签名（hash 参数）。

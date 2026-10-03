@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"heyteago-diy/internal/domain"
+	"github.com/DiheMoe/heyteago-diy/internal/domain"
 )
 
 // StickerService 承载杯贴上传与草稿保存。

@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"heyteago-diy/internal/domain"
-	"heyteago-diy/internal/usecase"
+	"github.com/DiheMoe/heyteago-diy/internal/domain"
+	"github.com/DiheMoe/heyteago-diy/internal/usecase"
 )
 
 type fakeSigner struct{}

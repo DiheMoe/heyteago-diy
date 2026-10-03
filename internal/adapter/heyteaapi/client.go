@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"time"
 
-	"heyteago-diy/internal/domain"
-	"heyteago-diy/internal/usecase"
+	"github.com/DiheMoe/heyteago-diy/internal/domain"
+	"github.com/DiheMoe/heyteago-diy/internal/usecase"
 )
 
 const (

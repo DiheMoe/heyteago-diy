@@ -3,7 +3,7 @@ package usecase
 import (
 	"context"
 
-	"heyteago-diy/internal/domain"
+	"github.com/DiheMoe/heyteago-diy/internal/domain"
 )
 
 // UserService 查询当前 token 对应的喜茶会员信息。
