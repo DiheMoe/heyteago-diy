@@ -169,7 +169,7 @@ func TestUploadValidation(t *testing.T) {
 }
 
 func TestUploadSignErrorWrapped(t *testing.T) {
-	signer := &fakeSigner{err: errors.New("oracle down")}
+	signer := &fakeSigner{err: errors.New("sign failed")}
 	gw := &fakeGateway{uploadRes: []domain.Result{okResult()}}
 	svc := NewStickerService(signer, gw)
 

@@ -53,7 +53,7 @@ func TestLoginKeepsOtherBusinessErrors(t *testing.T) {
 
 // 非 BusinessError（如 SignError、网络错误）不参与翻译。
 func TestLoginKeepsNonBusinessError(t *testing.T) {
-	gw := &fakeGateway{loginErr: &SignError{Err: errors.New("oracle down")}}
+	gw := &fakeGateway{loginErr: &SignError{Err: errors.New("sign failed")}}
 	svc := NewAuthService(gw)
 
 	_, err := svc.Login(context.Background(), "13800138000", "123456", "captcha-ticket")

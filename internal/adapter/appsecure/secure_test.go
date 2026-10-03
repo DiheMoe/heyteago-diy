@@ -6,9 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -195,6 +193,3 @@ func (g *fakeGateway) decrypt(t *testing.T, b64 string) string {
 	}
 	return string(pt)
 }
-
-var _ = hmac.New
-var _ = sha256.New
