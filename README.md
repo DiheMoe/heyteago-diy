@@ -5,7 +5,7 @@
 ### 部署
 
 ```bash
-docker compose up --build    # 打开 http://localhost:3000
+docker compose up -d    # 打开 http://localhost:3000
 ```
 
 ## token 获取

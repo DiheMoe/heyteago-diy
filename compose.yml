@@ -1,17 +1,11 @@
 services:
   server:
-    build: .
     image: ghcr.io/dihemoe/heyteago-diy/server:latest
     ports:
       - "127.0.0.1:8790:8790"
     restart: unless-stopped
 
   web:
-    build:
-      context: ./web
-      args:
-        HTTP_PROXY: ${HTTP_PROXY:-}
-        HTTPS_PROXY: ${HTTPS_PROXY:-}
     image: ghcr.io/dihemoe/heyteago-diy/web:latest
     ports:
       - "127.0.0.1:3000:3000"
