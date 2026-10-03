@@ -1,0 +1,16 @@
+# Go
+/server
+*.test
+*.out
+
+# Node / Next.js
+node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+*.tsbuildinfo
+
+# 构建与日志
+dist/
+*.log
+.DS_Store

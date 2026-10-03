@@ -1,0 +1,9 @@
+# 构建上下文瘦身：依赖与产物不进上下文（镜像内另行安装/构建）
+.git
+.codegraph
+web/node_modules
+web/.next
+server
+
+# 本机凭证不进镜像（运行时经 compose 挂载）
+.app-token

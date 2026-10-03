@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* 字体走系统栈（构建期不依赖 Google Fonts 网络）。 */
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
