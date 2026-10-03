@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const backend = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8790";
 
 const nextConfig: NextConfig = {
+  // 产出自包含的 .next/standalone（含 nft 追踪出的最小 node_modules 与 server.js），
+  // 运行时镜像不再需要全量依赖和 next start。
+  output: "standalone",
   // 浏览器只与同源的 Next 进程通信，/api 由这里转发给 Go 后端。
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
