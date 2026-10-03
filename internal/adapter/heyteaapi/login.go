@@ -117,7 +117,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 		req.Header.Set(k, v)
 	}
 	// 网关在登录/短信路径强制校验的 ticket Cookie（缺省实测返回 missing_ticket），
-	// 每次请求现取（助手进程内复用并自动续期）。
+	// 每次请求现取（会话内复用并在到期前自动续期）。
 	ticket, err := c.transport.Ticket(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("获取喜茶安全传输 ticket 失败: %w", err)

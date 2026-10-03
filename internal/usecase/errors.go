@@ -26,7 +26,7 @@ func (e *BusinessError) Error() string {
 	return fmt.Sprintf("上游业务错误 code=%d: %s", e.Code, e.Message)
 }
 
-// SignError 表示本地签名 oracle 不可用或签名失败，transport 层映射为 502。
+// SignError 表示本地签名失败，transport 层映射为 502。
 type SignError struct {
 	Err error
 }
