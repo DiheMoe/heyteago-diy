@@ -166,7 +166,8 @@ export default function Page() {
   const exportCurrent = () => {
     const canvas = canvasRef.current;
     if (!canvas) throw new Error("画布不可用");
-    return exportEditedCanvas(canvas, bg.enabled ? bg.color : null);
+    // 橡皮擦抠出的透明孔洞始终合成回杯贴底色 #EEEEEE，避免导出后发白
+    return exportEditedCanvas(canvas, bg.enabled ? bg.color : DEFAULT_BACKGROUND);
   };
 
   const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));

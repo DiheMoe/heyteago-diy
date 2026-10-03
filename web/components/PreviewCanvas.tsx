@@ -46,7 +46,8 @@ export function PreviewCanvas({ canvasRef, ready, tool, brushColor, brushSize, o
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.lineWidth = brushSize;
-    // 橡皮擦用 destination-out 抠出透明，导出时再合成到底色上
+    // 橡皮擦用 destination-out 抠出透明，导出时再合成到底色上；
+    // 画布 CSS 底色同为 #EEEEEE，预览时孔洞不显白
     ctx.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
     ctx.strokeStyle = brushColor;
     ctx.beginPath();
@@ -82,7 +83,7 @@ export function PreviewCanvas({ canvasRef, ready, tool, brushColor, brushSize, o
           onPointerMove={ready ? moveStroke : undefined}
           onPointerUp={endStroke}
           onPointerCancel={endStroke}
-          className={`max-h-[560px] w-auto max-w-full rounded-lg border border-neutral-200 bg-neutral-100 ${
+          className={`max-h-[560px] w-auto max-w-full rounded-lg border border-neutral-200 bg-[#EEEEEE] ${
             ready ? "cursor-crosshair touch-none" : "opacity-60"
           }`}
         />
