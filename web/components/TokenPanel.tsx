@@ -4,14 +4,23 @@
 // token 只保存在浏览器侧，服务端不存储。
 // 勾选"记住"后以明文存 localStorage——界面上如实标注，不暗示加密。
 //
+// 滑块在点击「登录」时触发（ticket 一次性，随当次尝试消耗）；
+// 登录失败只需重新滑块再点登录，短信未过期不必重发。
 // 短信/登录/查用户的反馈内联在本面板：全局状态条在 ActionBar，
 // 离本面板较远，发送回执放那里容易被忽略。
 import { useEffect, useRef, useState } from "react";
 import { fetchUser, loginByPhone, requestLoginSms, type User } from "@/lib/api";
 import { HEYTEA_CAPTCHA_APP_ID, runCaptcha } from "@/lib/captcha";
+import { loginWithCaptcha, maskPhone, sendLoginSms, type SmsLoginDeps } from "@/lib/sms-login";
 
 // 发送成功后的重发冷却：防连点透支短信每日上限
 const SMS_COOLDOWN_SECONDS = 60;
+
+const smsLoginDeps: SmsLoginDeps = {
+  runCaptcha: () => runCaptcha(HEYTEA_CAPTCHA_APP_ID),
+  requestLoginSms,
+  loginByPhone,
+};
 
 interface Feedback {
   kind: "error" | "success";
@@ -27,17 +36,15 @@ interface Props {
   onUserChange(user: User | null): void;
 }
 
-// 回执里确认发送目标，138****8000
-function maskPhone(phone: string): string {
-  return phone.length === 11 ? `${phone.slice(0, 3)}****${phone.slice(7)}` : phone;
+function errorText(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
 }
 
 export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserChange }: Props) {
   const [loadingUser, setLoadingUser] = useState(false);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  // 腾讯滑块 ticket 一次性有效：登录无论成败都会消耗，失败后必须重新滑
-  const [ticket, setTicket] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [loggingIn, setLoggingIn] = useState(false);
@@ -59,49 +66,41 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
       setFeedback({ kind: "success", text: "用户信息查询成功" });
     } catch (err) {
       onUserChange(null);
-      setFeedback({ kind: "error", text: err instanceof Error ? err.message : "查询用户失败" });
+      setFeedback({ kind: "error", text: errorText(err, "查询用户失败") });
     } finally {
       setLoadingUser(false);
     }
   };
 
   const sendSms = async () => {
-    if (!/^1\d{10}$/.test(phone)) {
-      setFeedback({ kind: "error", text: "请输入 11 位手机号" });
-      return;
-    }
     setSending(true);
     setFeedback(null);
     try {
-      const captcha = await runCaptcha(HEYTEA_CAPTCHA_APP_ID);
-      await requestLoginSms(phone);
-      // 短信发出后才存 ticket：没收到验证码时 ticket 无意义
-      setTicket(captcha.ticket);
+      await sendLoginSms(smsLoginDeps, phone);
+      setSent(true);
       // 重发后旧验证码大概率已失效，清空避免误提交
       setCode("");
       setCooldown(SMS_COOLDOWN_SECONDS);
       setFeedback({ kind: "success", text: `验证码已发送至 ${maskPhone(phone)}，请查收` });
       codeInputRef.current?.focus();
     } catch (err) {
-      setFeedback({ kind: "error", text: err instanceof Error ? err.message : "验证码发送失败" });
+      setFeedback({ kind: "error", text: errorText(err, "验证码发送失败") });
     } finally {
       setSending(false);
     }
   };
 
   const login = async () => {
-    if (!ticket || loggingIn) return;
     setLoggingIn(true);
     setFeedback(null);
     try {
-      const result = await loginByPhone(phone, code.trim(), ticket);
+      const result = await loginWithCaptcha(smsLoginDeps, phone, code.trim());
       onTokenChange(result.token, remember);
       onUserChange(result.user);
-      setTicket(null);
       setCode("");
     } catch (err) {
-      setTicket(null);
-      setFeedback({ kind: "error", text: err instanceof Error ? err.message : "登录失败" });
+      // 失败只消耗当次滑块 ticket：保留手机号与验证码，再点登录重新滑块即可
+      setFeedback({ kind: "error", text: errorText(err, "登录失败") });
     } finally {
       setLoggingIn(false);
     }
@@ -111,7 +110,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
     ? "发送中…"
     : cooldown > 0
       ? `${cooldown}s 后可重发`
-      : ticket
+      : sent
         ? "重新获取"
         : "发送验证码";
 
@@ -128,8 +127,8 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
           value={phone}
           onChange={(e) => {
             setPhone(e.target.value.trim());
-            // 换号后原号码的滑块 ticket 与发送回执不再适用
-            setTicket(null);
+            // 换号后原号码的发送回执不再适用
+            setSent(false);
             setFeedback(null);
           }}
         />
@@ -152,13 +151,13 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
           value={code}
           onChange={(e) => setCode(e.target.value.trim())}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && phone && code && ticket) void login();
+            if (e.key === "Enter" && phone && code && !loggingIn) void login();
           }}
         />
         <button
           type="button"
           onClick={login}
-          disabled={!phone || !code || !ticket || loggingIn || sending || busy}
+          disabled={!phone || !code || loggingIn || sending || busy}
           className="shrink-0 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs text-white hover:bg-neutral-700 disabled:opacity-50"
         >
           {loggingIn ? "登录中…" : "登录"}
