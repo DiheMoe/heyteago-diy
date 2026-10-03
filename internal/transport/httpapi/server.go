@@ -20,10 +20,11 @@ import (
 type Server struct {
 	stickers *usecase.StickerService
 	users    *usecase.UserService
+	auth     *usecase.AuthService
 }
 
-func NewServer(stickers *usecase.StickerService, users *usecase.UserService) *Server {
-	return &Server{stickers: stickers, users: users}
+func NewServer(stickers *usecase.StickerService, users *usecase.UserService, auth *usecase.AuthService) *Server {
+	return &Server{stickers: stickers, users: users, auth: auth}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -31,6 +32,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/upload", s.handleUpload)
 	mux.HandleFunc("POST /api/draft/save", s.handleSaveDraft)
 	mux.HandleFunc("GET /api/user", s.handleUser)
+	mux.HandleFunc("POST /api/login/sms", s.handleLoginSms)
+	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	return logRequests(mux)
 }
@@ -96,6 +99,51 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleLoginSms(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Phone string `json:"phone"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.auth.SendLoginSms(r.Context(), in.Phone); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Phone  string `json:"phone"`
+		Code   string `json:"code"`
+		Ticket string `json:"ticket"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	out, err := s.auth.Login(r.Context(), in.Phone, in.Code, in.Ticket)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// errBadJSON 表示请求体不是合法 JSON，映射为 400。
+var errBadJSON = errors.New("请求体不是合法的 JSON")
+
+// decodeJSON 解析 JSON 请求体；登录类端点字段少，请求体限 4KB。
+func decodeJSON(r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, 4<<10)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		return errBadJSON
+	}
+	return nil
+}
+
 // parseFilePart 解析 multipart 表单并取出 file 字段的全部字节。
 // 请求体上限 = 领域上限 + 1MiB 表单开销，超限直接拒绝。
 func parseFilePart(r *http.Request) ([]byte, *multipart.FileHeader, error) {
@@ -145,7 +193,11 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, usecase.ErrMissingToken),
 		errors.Is(err, usecase.ErrMissingUserMainID),
 		errors.Is(err, usecase.ErrMissingFile),
-		errors.Is(err, usecase.ErrFileTooLarge):
+		errors.Is(err, usecase.ErrFileTooLarge),
+		errors.Is(err, usecase.ErrInvalidPhone),
+		errors.Is(err, usecase.ErrMissingSmsCode),
+		errors.Is(err, usecase.ErrMissingTicket),
+		errors.Is(err, errBadJSON):
 		status = http.StatusBadRequest
 	case errors.As(err, &be):
 		status = http.StatusBadRequest

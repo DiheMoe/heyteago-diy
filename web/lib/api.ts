@@ -42,6 +42,29 @@ export async function fetchUser(token?: string): Promise<User> {
   return body.user as User;
 }
 
+export async function requestLoginSms(phone: string): Promise<void> {
+  const resp = await fetch("/api/login/sms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
+  });
+  if (!resp.ok) throw await parseError(resp);
+}
+
+export async function loginByPhone(
+  phone: string,
+  code: string,
+  ticket: string,
+): Promise<{ token: string; user: User }> {
+  const resp = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, code, ticket }),
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return resp.json();
+}
+
 export async function uploadSticker(
   blob: Blob,
   opts: { token: string; userMainId: number; width?: number; height?: number },

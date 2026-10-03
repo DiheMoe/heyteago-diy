@@ -10,7 +10,7 @@ docker compose up -d    # 打开 http://localhost:3000
 
 ## token 获取
 
-自行使用 mitmproxy 抓包获取 bearer token。
+部署后打开页面，在登录面板输入手机号，完成滑块人机验证后接收短信验证码，登录成功即自动获得 bearer token。
 
 ## 致谢
 

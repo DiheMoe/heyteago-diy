@@ -14,3 +14,4 @@ web/next-env.d.ts
 dist/
 *.log
 .DS_Store
+__pycache__/

@@ -11,6 +11,9 @@ var (
 	ErrMissingUserMainID = errors.New("缺少 userMainId")
 	ErrMissingFile       = errors.New("缺少文件")
 	ErrFileTooLarge      = errors.New("文件超过大小上限")
+	ErrInvalidPhone      = errors.New("手机号格式不正确")
+	ErrMissingSmsCode    = errors.New("缺少短信验证码")
+	ErrMissingTicket     = errors.New("缺少人机验证 ticket")
 )
 
 // BusinessError 表示喜茶上游返回了非 0 业务码。

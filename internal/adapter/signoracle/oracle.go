@@ -1,6 +1,6 @@
 // Package signoracle 用长驻 java 进程封装签名 oracle（unidbg 模拟执行 libheyteago.so）。
-// 协议：启动打印 "READY"；stdin 每行一个 sha256 hex，stdout 回 "RESULT:{json}"，
-// json.errorCode==0 时 data 字段即上传签名。
+// 协议：启动打印 "READY"；stdin 每行一个 sha256 hex（上传签名）或
+// "TRADE <biz>|<path>|<timestamp>"（反滥用签名），stdout 回 "RESULT:{json}"。
 // unidbg 非线程安全，所有请求经互斥锁串行；进程崩溃后下一次请求惰性重启。
 package signoracle
 
@@ -60,6 +60,34 @@ func New(cfg Config) *Oracle {
 }
 
 func (o *Oracle) SignImageDIY(ctx context.Context, sha256Hex string) (string, error) {
+	payload, err := o.callLocked(ctx, sha256Hex)
+	if err != nil {
+		return "", err
+	}
+	var res oracleResult
+	if err := json.Unmarshal([]byte(payload), &res); err != nil {
+		return "", fmt.Errorf("签名结果解析失败: %.200s", payload)
+	}
+	if res.ErrorCode != 0 || res.Data == "" {
+		return "", fmt.Errorf("oracle 返回 errorCode=%d: %s", res.ErrorCode, res.Message)
+	}
+	return res.Data, nil
+}
+
+// SignTrade 计算反滥用签名 hmacStr（calTradeAndMemberSign），供登录链路 4 头使用。
+// TRADE 的 RESULT 行不是 {errorCode,message,data} 信封，而是 JNI 原始返回值，
+// 由 unwrapTrade 剥出最终签名字符串。
+func (o *Oracle) SignTrade(ctx context.Context, biz, path, timestamp string) (string, error) {
+	payload, err := o.callLocked(ctx, "TRADE "+biz+"|"+path+"|"+timestamp)
+	if err != nil {
+		return "", err
+	}
+	return unwrapTrade(payload)
+}
+
+// callLocked 串行地发一行请求并等待 RESULT 行，返回 "RESULT:" 之后的原始负载。
+// 协议没有请求关联标识，超时/取消/进程退出后只能重启 oracle 保证状态干净。
+func (o *Oracle) callLocked(ctx context.Context, request string) (string, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -67,7 +95,7 @@ func (o *Oracle) SignImageDIY(ctx context.Context, sha256Hex string) (string, er
 		return "", err
 	}
 
-	if _, err := io.WriteString(o.stdin, sha256Hex+"\n"); err != nil {
+	if _, err := io.WriteString(o.stdin, request+"\n"); err != nil {
 		o.resetLocked()
 		return "", fmt.Errorf("写入签名请求失败: %w", err)
 	}
@@ -77,8 +105,6 @@ func (o *Oracle) SignImageDIY(ctx context.Context, sha256Hex string) (string, er
 	for {
 		select {
 		case <-ctx.Done():
-			// 协议没有请求关联标识，迟到的 RESULT 无法与后续请求区分，
-			// 只能重启 oracle 保证状态干净。
 			o.resetLocked()
 			return "", ctx.Err()
 		case <-timer.C:
@@ -89,11 +115,8 @@ func (o *Oracle) SignImageDIY(ctx context.Context, sha256Hex string) (string, er
 				o.resetLocked()
 				return "", fmt.Errorf("签名 oracle 已退出: %w", l.err)
 			}
-			if sig, ok, err := parseResult(l.text); ok {
-				if err != nil {
-					return "", err
-				}
-				return sig, nil
+			if payload, ok := resultPayload(l.text); ok {
+				return payload, nil
 			}
 			log.Printf("[sign] oracle 输出（非结果行）: %.200s", l.text)
 		}
@@ -201,18 +224,47 @@ type oracleResult struct {
 	Data      string `json:"data"`
 }
 
-// parseResult 解析 RESULT 行；ok=false 表示该行不是结果行。
-func parseResult(text string) (sig string, ok bool, err error) {
+// resultPayload 从一行输出中取出 RESULT 前缀后的负载；ok=false 表示该行不是结果行。
+func resultPayload(text string) (string, bool) {
 	const prefix = "RESULT:"
 	if len(text) < len(prefix) || text[:len(prefix)] != prefix {
-		return "", false, nil
+		return "", false
 	}
-	var res oracleResult
-	if err := json.Unmarshal([]byte(text[len(prefix):]), &res); err != nil {
-		return "", true, fmt.Errorf("签名结果解析失败: %.200s", text[len(prefix):])
+	return text[len(prefix):], true
+}
+
+// unwrapTrade 剥开 calTradeAndMemberSign JNI 返回值的多层 JSON 包裹，取出最终签名字符串。
+// 典型形状是双层包裹 {"data":"{\"data\":\"<sign>\"}"}；
+// 含非 0 errorCode 的对象是错误行，其余对象要求有字符串 data 字段。
+func unwrapTrade(raw string) (string, error) {
+	var v any = raw
+	// 层数上限防自引用死循环（data 字符串内容与原串相同）。
+	for depth := 0; depth < 8; depth++ {
+		switch t := v.(type) {
+		case string:
+			var next any
+			if err := json.Unmarshal([]byte(t), &next); err != nil {
+				return t, nil // 不是 JSON，已到最终签名字符串
+			}
+			switch next.(type) {
+			case map[string]any, string:
+				v = next
+			default:
+				return t, nil // 解析出标量（数字/布尔/null），原字符串即最终值
+			}
+		case map[string]any:
+			if code, ok := t["errorCode"].(float64); ok && code != 0 {
+				msg, _ := t["message"].(string)
+				return "", fmt.Errorf("oracle 返回 errorCode=%d: %s", int(code), msg)
+			}
+			data, ok := t["data"].(string)
+			if !ok {
+				return "", fmt.Errorf("签名结果缺少 data 字段: %.200s", raw)
+			}
+			v = data
+		default:
+			return "", fmt.Errorf("签名结果形状异常: %.200s", raw)
+		}
 	}
-	if res.ErrorCode != 0 || res.Data == "" {
-		return "", true, fmt.Errorf("oracle 返回 errorCode=%d: %s", res.ErrorCode, res.Message)
-	}
-	return res.Data, true, nil
+	return "", fmt.Errorf("签名结果嵌套层数超限: %.200s", raw)
 }

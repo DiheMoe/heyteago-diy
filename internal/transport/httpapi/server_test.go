@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DiheMoe/heyteago-diy/internal/domain"
@@ -17,10 +18,17 @@ import (
 type fakeSigner struct{}
 
 func (fakeSigner) SignImageDIY(_ context.Context, _ string) (string, error) { return "h", nil }
+func (fakeSigner) SignTrade(_ context.Context, _, _, _ string) (string, error) {
+	return "trade-sign", nil
+}
 
 type fakeGateway struct {
-	lastUpload usecase.StickerUpload
-	lastDraft  usecase.DraftSave
+	lastUpload    usecase.StickerUpload
+	lastDraft     usecase.DraftSave
+	lastSmsMobile string
+	lastLogin     usecase.PhoneLogin
+	loginToken    string
+	loginErr      error
 }
 
 func (f *fakeGateway) UploadSticker(_ context.Context, req usecase.StickerUpload) (domain.Result, error) {
@@ -34,16 +42,30 @@ func (f *fakeGateway) SaveDraft(_ context.Context, req usecase.DraftSave) (domai
 }
 
 func (f *fakeGateway) UserInfo(_ context.Context, token string) (domain.User, error) {
-	if token != "file-token" && token != "given-token" {
+	if token != "file-token" && token != "given-token" && token != "login-token" {
 		return domain.User{}, &usecase.BusinessError{Code: 401, Message: "登录态失效"}
 	}
 	return domain.User{UserMainID: 7, Name: "测试"}, nil
 }
 
+func (f *fakeGateway) SendLoginSms(_ context.Context, mobile string) error {
+	f.lastSmsMobile = mobile
+	return nil
+}
+
+func (f *fakeGateway) LoginByPhone(_ context.Context, req usecase.PhoneLogin) (string, error) {
+	f.lastLogin = req
+	if f.loginErr != nil {
+		return "", f.loginErr
+	}
+	return f.loginToken, nil
+}
+
 func newTestServer(gw *fakeGateway) http.Handler {
 	stickers := usecase.NewStickerService(fakeSigner{}, gw)
 	users := usecase.NewUserService(gw)
-	return NewServer(stickers, users).Handler()
+	auth := usecase.NewAuthService(gw)
+	return NewServer(stickers, users, auth).Handler()
 }
 
 func multipartBody(t *testing.T, fields map[string]string, fileField, fileName string, file []byte) (string, *bytes.Buffer) {
@@ -224,5 +246,95 @@ func TestHealth(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+func postJSON(t *testing.T, url, body string) *http.Response {
+	t.Helper()
+	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestLoginSmsOK(t *testing.T) {
+	gw := &fakeGateway{}
+	srv := httptest.NewServer(newTestServer(gw))
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/login/sms", `{"phone":"13800138000"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, raw)
+	}
+	if gw.lastSmsMobile != "13800138000" {
+		t.Fatalf("sms mobile = %q", gw.lastSmsMobile)
+	}
+}
+
+func TestLoginSmsInvalidPhone(t *testing.T) {
+	gw := &fakeGateway{}
+	srv := httptest.NewServer(newTestServer(gw))
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/login/sms", `{"phone":"abc"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if gw.lastSmsMobile != "" {
+		t.Fatalf("gateway called despite invalid phone: %q", gw.lastSmsMobile)
+	}
+}
+
+func TestLoginOK(t *testing.T) {
+	gw := &fakeGateway{loginToken: "login-token"}
+	srv := httptest.NewServer(newTestServer(gw))
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/login", `{"phone":"13800138000","code":"123456","ticket":"t123"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, raw)
+	}
+	var out struct {
+		Token string      `json:"token"`
+		User  domain.User `json:"user"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Token != "login-token" || out.User.UserMainID != 7 {
+		t.Fatalf("out = %+v", out)
+	}
+	if gw.lastLogin != (usecase.PhoneLogin{Phone: "13800138000", Code: "123456", Ticket: "t123"}) {
+		t.Fatalf("login req = %+v", gw.lastLogin)
+	}
+}
+
+func TestLoginMissingFields(t *testing.T) {
+	gw := &fakeGateway{}
+	srv := httptest.NewServer(newTestServer(gw))
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/login", `{"phone":"13800138000"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestLoginBadJSON(t *testing.T) {
+	gw := &fakeGateway{}
+	srv := httptest.NewServer(newTestServer(gw))
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/login", `not json`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
 }

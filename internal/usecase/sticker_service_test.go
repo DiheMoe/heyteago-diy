@@ -22,6 +22,10 @@ func (f *fakeSigner) SignImageDIY(_ context.Context, _ string) (string, error) {
 	return "hash-value", nil
 }
 
+func (f *fakeSigner) SignTrade(_ context.Context, _, _, _ string) (string, error) {
+	return "trade-sign", nil
+}
+
 type fakeGateway struct {
 	uploads   []StickerUpload
 	uploadRes []domain.Result // 按调用顺序返回
@@ -41,6 +45,14 @@ func (f *fakeGateway) SaveDraft(_ context.Context, _ DraftSave) (domain.Result, 
 
 func (f *fakeGateway) UserInfo(_ context.Context, _ string) (domain.User, error) {
 	return f.user, f.userErr
+}
+
+func (f *fakeGateway) SendLoginSms(_ context.Context, _ string) error {
+	return nil
+}
+
+func (f *fakeGateway) LoginByPhone(_ context.Context, _ PhoneLogin) (string, error) {
+	return "", nil
 }
 
 func okResult() domain.Result {

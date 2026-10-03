@@ -273,7 +273,6 @@ export default function Page() {
             busy={busy !== null}
             onTokenChange={handleTokenChange}
             onUserChange={setUser}
-            onStatus={(kind, text) => setStatus({ kind, text })}
           />
         </div>
         <div className="order-2 lg:col-start-2">

@@ -29,14 +29,20 @@ const (
 )
 
 type Client struct {
-	http    *http.Client
-	baseURL string // 可被测试覆盖
+	http      *http.Client
+	baseURL   string // 可被测试覆盖
+	signer    usecase.Signer
+	transport usecase.SecureTransport
 }
 
-func New() *Client {
+// New 的 signer 供登录链路计算反滥用签名 hmacStr（每次尝试单独计算）；
+// transport 供登录/短信请求取 ticket Cookie 并按路由规则加解密报文。
+func New(signer usecase.Signer, transport usecase.SecureTransport) *Client {
 	return &Client{
-		http:    &http.Client{Timeout: 30 * time.Second},
-		baseURL: defaultBaseURL,
+		http:      &http.Client{Timeout: 30 * time.Second},
+		baseURL:   defaultBaseURL,
+		signer:    signer,
+		transport: transport,
 	}
 }
 

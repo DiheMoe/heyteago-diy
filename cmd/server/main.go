@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/DiheMoe/heyteago-diy/internal/adapter/heyteaapi"
+	"github.com/DiheMoe/heyteago-diy/internal/adapter/secureticket"
 	"github.com/DiheMoe/heyteago-diy/internal/adapter/signoracle"
 	"github.com/DiheMoe/heyteago-diy/internal/transport/httpapi"
 	"github.com/DiheMoe/heyteago-diy/internal/usecase"
@@ -34,13 +35,21 @@ func run() error {
 	oracle := signoracle.New(oracleCfg)
 	defer oracle.Close()
 
-	gateway := heyteaapi.New()
+	ticketCfg := secureticket.DefaultConfig()
+	ticketCfg.PythonBin = envOr("HEYTEA_SECURE_PYTHON", ticketCfg.PythonBin)
+	ticketCfg.ScriptPath = envOr("HEYTEA_SECURE_SCRIPT", ticketCfg.ScriptPath)
+	ticketCfg.SoPath = envOr("HEYTEA_SDK_SO", ticketCfg.SoPath)
+	transport := secureticket.New(ticketCfg)
+	defer transport.Close()
+
+	gateway := heyteaapi.New(oracle, transport)
 	stickers := usecase.NewStickerService(oracle, gateway)
 	users := usecase.NewUserService(gateway)
+	auth := usecase.NewAuthService(gateway)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.NewServer(stickers, users).Handler(),
+		Handler:           httpapi.NewServer(stickers, users, auth).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		// 上传链路与签名 oracle 往返可能耗时数十秒，不写总超时，
 		// 依赖 ctx 与各环节自身的超时控制。

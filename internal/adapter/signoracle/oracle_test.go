@@ -40,3 +40,32 @@ func TestOracleIntegration(t *testing.T) {
 		t.Fatalf("second sign: %v", err)
 	}
 }
+
+// unwrapTrade 是纯函数：覆盖双层/单层 data 包裹、裸字符串与错误行。
+func TestUnwrapTrade(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{"双层 data 包裹", `{"data":"{\"data\":\"abc123\"}"}`, "abc123", false},
+		{"单层 data 包裹", `{"data":"abc123"}`, "abc123", false},
+		{"裸字符串", `abc123`, "abc123", false},
+		{"数字形态的签名", `{"data":"12345"}`, "12345", false},
+		{"errorCode 非 0", `{"errorCode":-1,"message":"bad TRADE line"}`, "", true},
+		{"缺少 data 字段", `{"foo":1}`, "", true},
+		{"data 非字符串", `{"data":{"x":1}}`, "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := unwrapTrade(c.raw)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("unwrapTrade(%q) err = %v, wantErr=%v", c.raw, err, c.wantErr)
+			}
+			if err == nil && got != c.want {
+				t.Fatalf("unwrapTrade(%q) = %q, want %q", c.raw, got, c.want)
+			}
+		})
+	}
+}
