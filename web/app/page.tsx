@@ -46,7 +46,7 @@ export default function Page() {
     fit: "cover",
     forcePng: true,
   });
-  const [bg, setBg] = useState<BackgroundSettings>({ enabled: true, color: DEFAULT_BACKGROUND, tolerance: 248 });
+  const [bg, setBg] = useState<BackgroundSettings>({ enabled: true, color: DEFAULT_BACKGROUND, tolerance: 250 });
   const [tool, setTool] = useState<Tool>("brush");
   const [brushColor, setBrushColor] = useState("#000000");
   const [brushSize, setBrushSize] = useState(12);

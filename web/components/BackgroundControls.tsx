@@ -43,6 +43,7 @@ export function BackgroundControls({ value, onChange }: Props) {
               type="range"
               min={230}
               max={255}
+              step={5}
               value={value.tolerance}
               onChange={(e) => onChange({ ...value, tolerance: Number(e.target.value) })}
               className="flex-1"
