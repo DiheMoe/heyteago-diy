@@ -35,8 +35,17 @@ type StickerGateway interface {
 	UploadSticker(ctx context.Context, req StickerUpload) (domain.Result, error)
 	SaveDraft(ctx context.Context, req DraftSave) (domain.Result, error)
 	UserInfo(ctx context.Context, token string) (domain.User, error)
-	SendLoginSms(ctx context.Context, mobile string) error
+	SendLoginSms(ctx context.Context, req LoginSms) error
 	LoginByPhone(ctx context.Context, req PhoneLogin) (string, error)
+}
+
+// LoginSms 是发送登录短信验证码的入参。手机号传明文，AES 加密在 adapter 内完成。
+// Ticket/Randstr 是腾讯滑块验证结果：平时不带，仅当上游返回 4005021
+// 要求人机验证时携带重试，两者同时非空才会随请求发出。
+type LoginSms struct {
+	Mobile  string
+	Ticket  string
+	Randstr string
 }
 
 // StickerUpload 是一次正式上传所需的全部入参；Hash 由用例签名后填入。

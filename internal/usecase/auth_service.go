@@ -18,11 +18,11 @@ func NewAuthService(gateway StickerGateway) *AuthService {
 	return &AuthService{gateway: gateway}
 }
 
-func (s *AuthService) SendLoginSms(ctx context.Context, phone string) error {
-	if !phonePattern.MatchString(phone) {
+func (s *AuthService) SendLoginSms(ctx context.Context, in LoginSms) error {
+	if !phonePattern.MatchString(in.Mobile) {
 		return ErrInvalidPhone
 	}
-	return s.gateway.SendLoginSms(ctx, phone)
+	return s.gateway.SendLoginSms(ctx, in)
 }
 
 // Login 用短信验证码换 token，并查回用户信息（上传链路需要 user_main_id，

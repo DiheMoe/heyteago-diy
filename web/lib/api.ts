@@ -10,7 +10,7 @@ export interface UploadResult {
   data?: unknown;
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
@@ -42,11 +42,15 @@ export async function fetchUser(token?: string): Promise<User> {
   return body.user as User;
 }
 
-export async function requestLoginSms(phone: string): Promise<void> {
+// captcha 是腾讯滑块验证结果，仅当上游返回 4005021 要求人机验证后重试时携带。
+export async function requestLoginSms(
+  phone: string,
+  captcha?: { ticket: string; randstr: string },
+): Promise<void> {
   const resp = await fetch("/api/login/sms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({ phone, ...captcha }),
   });
   if (!resp.ok) throw await parseError(resp);
 }

@@ -49,7 +49,7 @@ func (f *fakeGateway) UserInfo(_ context.Context, _ string) (domain.User, error)
 	return f.user, f.userErr
 }
 
-func (f *fakeGateway) SendLoginSms(_ context.Context, _ string) error {
+func (f *fakeGateway) SendLoginSms(_ context.Context, _ LoginSms) error {
 	return nil
 }
 

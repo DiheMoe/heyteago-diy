@@ -101,13 +101,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLoginSms(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Phone string `json:"phone"`
+		Phone   string `json:"phone"`
+		Ticket  string `json:"ticket"`
+		Randstr string `json:"randstr"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := s.auth.SendLoginSms(r.Context(), in.Phone); err != nil {
+	err := s.auth.SendLoginSms(r.Context(), usecase.LoginSms{
+		Mobile:  in.Phone,
+		Ticket:  in.Ticket,
+		Randstr: in.Randstr,
+	})
+	if err != nil {
 		writeError(w, err)
 		return
 	}

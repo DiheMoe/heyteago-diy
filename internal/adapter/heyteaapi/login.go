@@ -25,20 +25,26 @@ const (
 	loginClientVersion = "164"
 )
 
-// SendLoginSms 发送登录短信验证码。
-func (c *Client) SendLoginSms(ctx context.Context, mobile string) error {
-	enc, err := EncryptMobile(mobile)
+// SendLoginSms 发送登录短信验证码。Ticket/Randstr 同时非空时随请求发出
+// （上游返回 4005021 要求人机验证后的重试），否则不带这两个字段。
+func (c *Client) SendLoginSms(ctx context.Context, in usecase.LoginSms) error {
+	enc, err := EncryptMobile(in.Mobile)
 	if err != nil {
 		return err
 	}
-	_, err = c.postJSON(ctx, smsPath, map[string]any{
+	body := map[string]any{
 		"client":      "app",
 		"brandId":     brandID,
 		"mobile":      enc,
 		"zone":        "86",
 		"cryptoLevel": 2,
 		"ticketFrom":  "min",
-	}, nil)
+	}
+	if in.Ticket != "" && in.Randstr != "" {
+		body["ticket"] = in.Ticket
+		body["randstr"] = in.Randstr
+	}
+	_, err = c.postJSON(ctx, smsPath, body, nil)
 	return err
 }
 

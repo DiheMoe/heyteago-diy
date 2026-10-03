@@ -79,7 +79,7 @@ func TestLoginValidation(t *testing.T) {
 
 func TestSendLoginSmsValidation(t *testing.T) {
 	svc := NewAuthService(&fakeGateway{})
-	if err := svc.SendLoginSms(context.Background(), "abc"); !errors.Is(err, ErrInvalidPhone) {
+	if err := svc.SendLoginSms(context.Background(), LoginSms{Mobile: "abc"}); !errors.Is(err, ErrInvalidPhone) {
 		t.Fatalf("err = %v, want ErrInvalidPhone", err)
 	}
 }

@@ -23,12 +23,12 @@ func (fakeSigner) SignTrade(_ context.Context, _, _, _ string) (string, error) {
 }
 
 type fakeGateway struct {
-	lastUpload    usecase.StickerUpload
-	lastDraft     usecase.DraftSave
-	lastSmsMobile string
-	lastLogin     usecase.PhoneLogin
-	loginToken    string
-	loginErr      error
+	lastUpload usecase.StickerUpload
+	lastDraft  usecase.DraftSave
+	lastSms    usecase.LoginSms
+	lastLogin  usecase.PhoneLogin
+	loginToken string
+	loginErr   error
 }
 
 func (f *fakeGateway) UploadSticker(_ context.Context, req usecase.StickerUpload) (domain.Result, error) {
@@ -48,8 +48,8 @@ func (f *fakeGateway) UserInfo(_ context.Context, token string) (domain.User, er
 	return domain.User{UserMainID: 7, Name: "测试"}, nil
 }
 
-func (f *fakeGateway) SendLoginSms(_ context.Context, mobile string) error {
-	f.lastSmsMobile = mobile
+func (f *fakeGateway) SendLoginSms(_ context.Context, req usecase.LoginSms) error {
+	f.lastSms = req
 	return nil
 }
 
@@ -269,8 +269,25 @@ func TestLoginSmsOK(t *testing.T) {
 		raw, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, raw)
 	}
-	if gw.lastSmsMobile != "13800138000" {
-		t.Fatalf("sms mobile = %q", gw.lastSmsMobile)
+	if gw.lastSms.Mobile != "13800138000" {
+		t.Fatalf("sms mobile = %q", gw.lastSms.Mobile)
+	}
+}
+
+// 滑块 ticket/randstr 原样透传给网关（4005021 要求人机验证后的重试路径）。
+func TestLoginSmsWithCaptcha(t *testing.T) {
+	gw := &fakeGateway{}
+	srv := httptest.NewServer(newTestServer(gw))
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/api/login/sms", `{"phone":"13800138000","ticket":"cap-t","randstr":"cap-r"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, body = %s", resp.StatusCode, raw)
+	}
+	if gw.lastSms != (usecase.LoginSms{Mobile: "13800138000", Ticket: "cap-t", Randstr: "cap-r"}) {
+		t.Fatalf("sms req = %+v", gw.lastSms)
 	}
 }
 
@@ -284,8 +301,8 @@ func TestLoginSmsInvalidPhone(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
-	if gw.lastSmsMobile != "" {
-		t.Fatalf("gateway called despite invalid phone: %q", gw.lastSmsMobile)
+	if gw.lastSms.Mobile != "" {
+		t.Fatalf("gateway called despite invalid phone: %q", gw.lastSms.Mobile)
 	}
 }
 
