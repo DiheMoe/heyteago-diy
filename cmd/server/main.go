@@ -32,7 +32,6 @@ func run() error {
 	secureCfg := appsecure.DefaultConfig()
 	secureCfg.Host = envOr("HEYTEA_APP_HOST", secureCfg.Host)
 	transport := appsecure.New(secureCfg)
-	defer transport.Close()
 
 	gateway := heyteaapi.New(signer, transport)
 	stickers := usecase.NewStickerService(signer, gateway)

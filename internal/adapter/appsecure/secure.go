@@ -116,9 +116,6 @@ func (s *Source) Session(ctx context.Context) (usecase.SecureSession, error) {
 	}, nil
 }
 
-// Close 无长驻资源，空实现（满足调用方 defer Close 习惯）。
-func (s *Source) Close() {}
-
 // session 是一次请求的会话快照：字段在握手时定型，只读、无锁、可并发使用。
 type session struct {
 	key       []byte // 32 字节；[:16] 为 AES-128-GCM 密钥
