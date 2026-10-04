@@ -61,13 +61,13 @@ export function readFileAsImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-// 把原图按当前设置渲染到 596×832 画布并导出压缩后的 Blob。
-// 取景变换顺序：平移到（中心+offset）→ 旋转 → 按旋转后的逻辑尺寸缩放绘制。
-// 返回的 Blob 同时作为预览与画笔编辑的基底。
-export async function renderSticker(
+// renderBase 把原图按当前设置渲染到 596×832 离屏画布：
+// 取景变换（平移到中心+offset → 旋转 → 按旋转后逻辑尺寸缩放）+ 色调/底色处理。
+// 不含压缩——是预览的快速通道；导出走 renderSticker。
+export function renderBase(
   image: HTMLImageElement,
   options: RenderOptions,
-): Promise<Blob> {
+): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = CUP_WIDTH;
   canvas.height = CUP_HEIGHT;
@@ -99,7 +99,18 @@ export async function renderSticker(
     applyBackground(imageData, options.background, options.whiteTolerance);
   }
   ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
 
+// renderSticker 导出压缩后的 Blob（含量化阶梯，与实际上传产物一致；慢，勿用于实时预览）。
+export async function renderSticker(
+  image: HTMLImageElement,
+  options: RenderOptions,
+): Promise<Blob> {
+  const canvas = renderBase(image, options);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("当前浏览器不支持 Canvas");
+  const imageData = ctx.getImageData(0, 0, CUP_WIDTH, CUP_HEIGHT);
   return compressPngFirst(ctx, imageData, MAX_UPLOAD_BYTES, options.forcePng);
 }
 

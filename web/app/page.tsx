@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fetchUser, fileNameFor, saveDraft, uploadSticker, type User } from "@/lib/api";
-import { exportEditedCanvas, offsetBounds, readFileAsImage, renderSticker } from "@/lib/canvas/render";
+import { exportEditedCanvas, offsetBounds, readFileAsImage, renderBase, renderSticker } from "@/lib/canvas/render";
 import { CUP_HEIGHT, CUP_WIDTH, DEFAULT_BACKGROUND } from "@/lib/canvas/constants";
 import { drawStroke, replayStrokes, type Stroke, type StrokePoint } from "@/lib/canvas/strokes";
 import { hitText, renderTexts, type TextObj } from "@/lib/canvas/texts";
@@ -187,16 +187,26 @@ export default function Page() {
 
   // 原图或参数变化 → 重绘基底画布。笔触与擦除标记在独立图层，不受影响；
   // 撤销栈存矢量笔画（点列），跨重渲染依然有效。
+  // 两档渲染：快速预览（不压缩）随每次变化立即给出，保证拖动/滑杆手感；
+  // 全量渲染（含量化阶梯，与导出一致）防抖到停顿后补齐。
   useEffect(() => {
     if (!image) return;
     const seq = ++renderSeq.current;
+    const opts = {
+      ...tone,
+      background: bg.enabled ? bg.color : null,
+      whiteTolerance: bg.tolerance,
+      ...view,
+    };
+    // 快速预览：毫秒级，让移动/旋转/拖滑块立即有反馈
+    const baseCtx = baseCanvasRef.current?.getContext("2d");
+    if (baseCtx) {
+      baseCtx.clearRect(0, 0, CUP_WIDTH, CUP_HEIGHT);
+      baseCtx.drawImage(renderBase(image, opts), 0, 0);
+      setReady(true);
+    }
     const timer = setTimeout(() => {
-      renderSticker(image, {
-        ...tone,
-        background: bg.enabled ? bg.color : null,
-        whiteTolerance: bg.tolerance,
-        ...view,
-      })
+      renderSticker(image, opts)
         .then(async (blob) => {
           if (seq !== renderSeq.current) return;
           const bitmap = await createImageBitmap(blob);
