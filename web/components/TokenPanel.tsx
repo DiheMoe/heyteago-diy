@@ -31,7 +31,6 @@ interface Props {
   token: string;
   remember: boolean;
   user: User | null;
-  busy: boolean;
   onTokenChange(token: string, remember: boolean): void;
   onUserChange(user: User | null): void;
 }
@@ -40,7 +39,7 @@ function errorText(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserChange }: Props) {
+export function TokenPanel({ token, remember, user, onTokenChange, onUserChange }: Props) {
   const [loadingUser, setLoadingUser] = useState(false);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -50,6 +49,12 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
   const [loggingIn, setLoggingIn] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const codeInputRef = useRef<HTMLInputElement | null>(null);
+  // 查询序号：token 变化或新查询发起时递增，迟到的旧结果按序号丢弃
+  // （否则会出现"B 的 token + A 的用户信息"的错配状态）
+  const querySeq = useRef(0);
+  useEffect(() => {
+    querySeq.current++;
+  }, [token]);
 
   // 冷却倒计时逐秒递减；换号不清零——冷却约束的是发送频率，不是某个号码
   useEffect(() => {
@@ -59,15 +64,21 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
   }, [cooldown]);
 
   const queryUser = async () => {
+    const seq = ++querySeq.current;
     setLoadingUser(true);
     setFeedback(null);
     try {
-      onUserChange(await fetchUser(token || undefined));
+      const next = await fetchUser(token || undefined);
+      if (seq !== querySeq.current) return; // 返回途中 token 已切换，结果过期
+      onUserChange(next);
       setFeedback({ kind: "success", text: "用户信息查询成功" });
     } catch (err) {
+      if (seq !== querySeq.current) return;
       onUserChange(null);
       setFeedback({ kind: "error", text: errorText(err, "查询用户失败") });
     } finally {
+      // 无论结果是否过期，本次查询都已结束（按钮点击时会被 disabled 挡住并发，
+      // 过期场景没有新查询接管 loading 状态）
       setLoadingUser(false);
     }
   };
@@ -135,7 +146,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <button
           type="button"
           onClick={sendSms}
-          disabled={sending || loggingIn || busy || cooldown > 0}
+          disabled={sending || loggingIn || cooldown > 0}
           className="shrink-0 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
         >
           {sendLabel}
@@ -157,7 +168,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <button
           type="button"
           onClick={login}
-          disabled={!phone || !code || loggingIn || sending || busy}
+          disabled={!phone || !code || loggingIn || sending}
           className="shrink-0 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs text-white hover:bg-neutral-700 disabled:opacity-50"
         >
           {loggingIn ? "登录中…" : "登录"}
@@ -187,7 +198,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <button
           type="button"
           onClick={queryUser}
-          disabled={loadingUser || busy}
+          disabled={loadingUser}
           className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs text-white hover:bg-neutral-700 disabled:opacity-50"
         >
           {loadingUser ? "查询中…" : "查询用户"}
@@ -195,6 +206,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <label className="flex items-center gap-1.5 text-xs text-neutral-600">
           <input
             type="checkbox"
+            className="accent-neutral-900"
             checked={remember}
             onChange={(e) => onTokenChange(token, e.target.checked)}
           />
@@ -213,7 +225,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
             </div>
           </div>
         ) : (
-          <p className="text-xs text-neutral-600">未登录 —— 使用手机号登录，或粘贴 token 后点击「查询用户」</p>
+          <p className="text-xs text-neutral-600">未登录</p>
         )}
       </div>
     </section>

@@ -95,6 +95,6 @@ export async function saveDraft(blob: Blob, token: string): Promise<UploadResult
   return resp.json();
 }
 
-function fileNameFor(blob: Blob): string {
+export function fileNameFor(blob: Blob): string {
   return blob.type === "image/jpeg" ? "cup.jpg" : "cup.png";
 }

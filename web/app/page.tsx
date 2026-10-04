@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { saveDraft, uploadSticker, type User } from "@/lib/api";
+import { fetchUser, fileNameFor, saveDraft, uploadSticker, type User } from "@/lib/api";
 import { exportEditedCanvas, readFileAsImage, renderSticker } from "@/lib/canvas/render";
 import { CUP_HEIGHT, CUP_WIDTH, DEFAULT_BACKGROUND } from "@/lib/canvas/constants";
 import { sha1Hex } from "@/lib/dup-guard";
@@ -65,6 +65,10 @@ export default function Page() {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setToken(saved);
         setRemember(true);
+        // 恢复的 token 直接查一次用户，免得手动再点「查询用户」；失效则提示重新登录
+        fetchUser(saved)
+          .then(setUser)
+          .catch(() => setStatus({ kind: "error", text: "本地保存的 token 已失效，请重新登录" }));
       }
     } catch {
       // localStorage 不可用（隐私模式等）时仅不持久化
@@ -234,7 +238,7 @@ export default function Page() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = blob.type === "image/jpeg" ? "cup.jpg" : "cup.png";
+      a.download = fileNameFor(blob);
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -270,7 +274,6 @@ export default function Page() {
             token={token}
             remember={remember}
             user={user}
-            busy={busy !== null}
             onTokenChange={handleTokenChange}
             onUserChange={setUser}
           />
