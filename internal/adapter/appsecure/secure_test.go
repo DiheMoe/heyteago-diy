@@ -32,11 +32,10 @@ func TestDecryptRealSoBlob(t *testing.T) {
 	sk := mustHex(t, "27e048e47cc1df68a042c283ae3ce66643a6e508179fe94e1bcd6d88f8ec4ff5")
 	raw := mustHex(t, "1303ac156f4b22430c6bbe3313e60321b989786275acd9b488c1c0f53d70e109239b88114cf444fec690c03bc25af5ce3b1afbd674")
 
-	s := New(DefaultConfig())
-	s.sessionKey = sk
-	plain, err := s.openLocked(raw)
+	sess := &session{key: sk, aad: New(DefaultConfig()).aad}
+	plain, err := sess.open(raw)
 	if err != nil {
-		t.Fatalf("openLocked: %v", err)
+		t.Fatalf("open: %v", err)
 	}
 	if got := string(plain); got != `{"hello":"world","n":123}` {
 		t.Fatalf("decrypt = %q", got)
@@ -44,10 +43,12 @@ func TestDecryptRealSoBlob(t *testing.T) {
 }
 
 func TestSealOpenRoundTrip(t *testing.T) {
-	s := New(DefaultConfig())
-	s.sessionKey = mustHex(t, "27e048e47cc1df68a042c283ae3ce66643a6e508179fe94e1bcd6d88f8ec4ff5")
+	sess := &session{
+		key: mustHex(t, "27e048e47cc1df68a042c283ae3ce66643a6e508179fe94e1bcd6d88f8ec4ff5"),
+		aad: New(DefaultConfig()).aad,
+	}
 	msg := []byte(`{"phone":"enc","code":"123456"}`)
-	b64, err := s.sealLocked(msg)
+	b64, err := sess.seal(msg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,9 +56,9 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.openLocked(raw)
+	got, err := sess.open(raw)
 	if err != nil {
-		t.Fatalf("openLocked: %v", err)
+		t.Fatalf("open: %v", err)
 	}
 	if !bytes.Equal(got, msg) {
 		t.Fatalf("round trip = %q", got)
@@ -97,7 +98,12 @@ func TestHandshakeAndEncryptAgainstFakeServer(t *testing.T) {
 	cfg.ServerPubKey = srv.pub.Bytes()
 	s := New(cfg)
 
-	enc, err := s.Encrypt(context.Background(), "/api/x/sms", json.RawMessage(`{"a":1}`))
+	sess, err := s.Session(context.Background())
+	if err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+
+	enc, err := sess.Encrypt("/api/x/sms", json.RawMessage(`{"a":1}`))
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
@@ -109,7 +115,7 @@ func TestHandshakeAndEncryptAgainstFakeServer(t *testing.T) {
 		t.Fatalf("服务端解密 = %q", got)
 	}
 
-	plain, err := s.Encrypt(context.Background(), "/api/plain", json.RawMessage(`{"b":2}`))
+	plain, err := sess.Encrypt("/api/plain", json.RawMessage(`{"b":2}`))
 	if err != nil {
 		t.Fatalf("Encrypt plain: %v", err)
 	}
@@ -117,12 +123,64 @@ func TestHandshakeAndEncryptAgainstFakeServer(t *testing.T) {
 		t.Fatalf("明文路由应原样返回, got %s", plain)
 	}
 
-	tk, err := s.Ticket(context.Background())
-	if err != nil || tk != "tkt-123" {
-		t.Fatalf("Ticket = %q, err=%v", tk, err)
+	if tk := sess.Ticket(); tk != "tkt-123" {
+		t.Fatalf("Ticket = %q", tk)
+	}
+
+	// 再取一次快照：会话应复用，不重新握手。
+	if _, err := s.Session(context.Background()); err != nil {
+		t.Fatalf("second Session: %v", err)
 	}
 	if srv.handshakes != 1 {
 		t.Fatalf("应复用会话，仅握手 1 次，实际 %d", srv.handshakes)
+	}
+}
+
+// 快照隔离（review 指出的竞态）：请求途中会话续期，旧快照仍持旧密钥——
+// 解密该请求（旧会话加密）的响应不受影响；新快照用新密钥。
+func TestSessionSnapshotSurvivesRenewal(t *testing.T) {
+	srv := newFakeGateway(t)
+	defer srv.Close()
+
+	cfg := DefaultConfig()
+	cfg.Host = srv.URL
+	cfg.ServerPubKey = srv.pub.Bytes()
+	s := New(cfg)
+
+	sess1, err := s.Session(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 旧会话加密的请求体（对应响应也将用旧会话密钥加密）。
+	enc, err := sess1.Encrypt("/api/x/sms", json.RawMessage(`{"k":"v"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Blob string `json:"secure_encrypted_c_data"`
+	}
+	if err := json.Unmarshal(enc, &env); err != nil || env.Blob == "" {
+		t.Fatalf("加密路由应产出密文信封, got %s", enc)
+	}
+	blob64 := env.Blob
+
+	// 强制到期触发续期：假服务端每次握手产生新 server_random，密钥必然不同。
+	s.mu.Lock()
+	s.expiresAt = 0
+	s.mu.Unlock()
+	sess2, err := s.Session(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srv.handshakes != 2 {
+		t.Fatalf("应已续期握手 2 次，实际 %d", srv.handshakes)
+	}
+
+	if _, err := sess1.Decrypt(blob64); err != nil {
+		t.Fatalf("续期后旧快照应仍能解旧密文: %v", err)
+	}
+	if _, err := sess2.Decrypt(blob64); err == nil {
+		t.Fatal("新快照不应解得开旧密文（反向控制：证明两次会话密钥确实不同）")
 	}
 }
 
