@@ -1,0 +1,23 @@
+web:
+  replicas: 1
+  image:
+    repository: ghcr.io/dihemoe/heyteago-diy/web
+    tag: latest
+    pullPolicy: IfNotPresent
+
+server:
+  replicas: 1
+  image:
+    repository: ghcr.io/dihemoe/heyteago-diy/server
+    tag: latest
+    pullPolicy: IfNotPresent
+  env: {}
+
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    - heyteago-diy.local
+  annotations: {}
+  tls: false
+  secretName: heyteago-diy-tls

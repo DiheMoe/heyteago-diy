@@ -1,0 +1,6 @@
+apiVersion: v2
+name: heyteago-diy
+description: 喜茶杯贴 DIY 工具（Next.js web 前端 + Go server 后端）
+type: application
+version: 0.1.0
+appVersion: latest

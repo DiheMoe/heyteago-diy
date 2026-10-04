@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "heyteago-diy.fullname" . }}-server
+  labels:
+    {{- include "heyteago-diy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8790
+      targetPort: http
+  selector:
+    {{- include "heyteago-diy.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server
