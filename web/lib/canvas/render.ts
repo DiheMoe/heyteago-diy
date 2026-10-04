@@ -103,15 +103,16 @@ export async function renderSticker(
   return compressPngFirst(ctx, imageData, MAX_UPLOAD_BYTES, options.forcePng);
 }
 
-// 分层画布：base=渲染基底，erase=擦除掩码（alpha 即形状），ink=画笔笔迹。
+// 分层画布：base=渲染基底，erase=擦除掩码（alpha 即形状），text=贴文字，ink=画笔笔迹。
 export interface LayeredCanvas {
   base: HTMLCanvasElement;
   erase: HTMLCanvasElement;
+  text: HTMLCanvasElement;
   ink: HTMLCanvasElement;
 }
 
 // 画笔编辑后的分层画布导出：不做量化（避免破坏笔触）。
-// 合成：先单独抠出基底（base 减擦除掩码），再盖到底色上、最后叠笔触——
+// 合成：先单独抠出基底（base 减擦除掩码），再盖到底色上、叠文字、最后叠笔触——
 // 掩码只抠基底，不能抠穿底色（否则擦除区在导出里是透明而不是底色）。
 // forcePng 是用户对输出格式的选择：PNG 超过 maxBytes 时报错而不是静默退 JPEG。
 // maxBytes 默认对齐上传上限；本地下载传 Infinity（不受上传约束，始终导出 PNG）。
@@ -143,6 +144,7 @@ export async function exportEditedCanvas(
     ctx.fillRect(0, 0, w, h);
   }
   ctx.drawImage(cut, 0, 0);
+  ctx.drawImage(layers.text, 0, 0);
   ctx.drawImage(layers.ink, 0, 0);
 
   const png = await canvasToBlob(composited, "image/png");

@@ -10,11 +10,13 @@ import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "
 import { CUP_HEIGHT, CUP_WIDTH, DEFAULT_BACKGROUND } from "@/lib/canvas/constants";
 import { drawSegment, drawStroke, strokeTargets, widthFor, type Stroke, type StrokePoint } from "@/lib/canvas/strokes";
 
-export type Tool = Stroke["tool"] | "move";
+export type Tool = Stroke["tool"] | "move" | "text";
 
 interface Props {
   baseCanvasRef: RefObject<HTMLCanvasElement | null>;
   eraseCanvasRef: RefObject<HTMLCanvasElement | null>;
+  // 贴文字层（erase 与 ink 之间）
+  textCanvasRef: RefObject<HTMLCanvasElement | null>;
   inkCanvasRef: RefObject<HTMLCanvasElement | null>;
   ready: boolean;
   tool: Tool;
@@ -28,6 +30,9 @@ interface Props {
   // Shift+点击直线的锚点（最后一笔终点，父组件随撤销/重做同步）
   strokeAnchor: StrokePoint | null;
   onPanDelta(dx: number, dy: number): void;
+  // 文字工具按下：父组件决定选中或放置；拖动经 onTextDrag 移动选中文字
+  onTextPointerDown(p: { x: number; y: number }): void;
+  onTextDrag(dx: number, dy: number): void;
   // 双指轻点（Procreate 式撤销约定）：父组件撤销一笔并重放抹掉进行中的笔画
   onGestureUndo(): void;
 }
@@ -35,6 +40,7 @@ interface Props {
 export function PreviewCanvas({
   baseCanvasRef,
   eraseCanvasRef,
+  textCanvasRef,
   inkCanvasRef,
   ready,
   tool,
@@ -44,6 +50,8 @@ export function PreviewCanvas({
   onStrokeEnd,
   strokeAnchor,
   onPanDelta,
+  onTextPointerDown,
+  onTextDrag,
   onGestureUndo,
 }: Props) {
   const drawing = useRef(false);
@@ -125,6 +133,12 @@ export function PreviewCanvas({
       last.current = point;
       return;
     }
+    if (tool === "text") {
+      onTextPointerDown(point);
+      drawing.current = true;
+      last.current = point;
+      return;
+    }
 
     // Shift+点击：从上一笔终点画直线段（写字/描边高频动作）
     if (e.shiftKey && strokeAnchor) {
@@ -158,11 +172,14 @@ export function PreviewCanvas({
       setCursorPos({ fx: pt.x / CUP_WIDTH, fy: pt.y / CUP_HEIGHT, sizeFrac: brushSize / CUP_WIDTH });
     }
     if (!drawing.current) return;
-    if (tool === "move") {
+    if (tool === "move" || tool === "text") {
       const point = toCanvasPoint(e);
       if (!point) return;
       if (last.current) {
-        onPanDelta(point.x - last.current.x, point.y - last.current.y);
+        const dx = point.x - last.current.x;
+        const dy = point.y - last.current.y;
+        if (tool === "move") onPanDelta(dx, dy);
+        else onTextDrag(dx, dy);
         last.current = point;
       }
       return;
@@ -185,7 +202,7 @@ export function PreviewCanvas({
 
   const endStroke = (e: PointerEvent<HTMLCanvasElement>) => {
     activePointers.current.delete(e.pointerId);
-    if (drawing.current && tool !== "move" && strokePoints.current.length > 0) {
+    if (drawing.current && tool !== "move" && tool !== "text" && strokePoints.current.length > 0) {
       // 收尾：把曲线延伸到最后一个采样点
       const lastPoint = strokePoints.current[strokePoints.current.length - 1];
       if (strokePoints.current.length > 1 && segPrev.current) {
@@ -204,7 +221,8 @@ export function PreviewCanvas({
     segMid.current = null;
   };
 
-  const cursor = tool === "move" ? "cursor-grab touch-none" : "cursor-none touch-none";
+  const cursor =
+    tool === "move" ? "cursor-grab touch-none" : tool === "text" ? "cursor-text touch-none" : "cursor-none touch-none";
 
   // 视图缩放（细活需要）：CSS zoom 放大层叠容器，容器溢出滚动即平移
   const [zoom, setZoom] = useState(1);
@@ -274,6 +292,12 @@ export function PreviewCanvas({
             className="pointer-events-none absolute inset-0 h-full w-full"
           />
           <canvas
+            ref={textCanvasRef}
+            width={CUP_WIDTH}
+            height={CUP_HEIGHT}
+            className="pointer-events-none absolute inset-0 h-full w-full"
+          />
+          <canvas
             ref={inkCanvasRef}
             width={CUP_WIDTH}
             height={CUP_HEIGHT}
@@ -284,7 +308,7 @@ export function PreviewCanvas({
             onPointerLeave={() => setCursorPos(null)}
             className={`absolute inset-0 h-full w-full ${ready ? cursor : ""}`}
           />
-          {cursorPos && tool !== "move" && (
+          {cursorPos && (tool === "brush" || tool === "eraser") && (
             <div
               aria-hidden
               className="pointer-events-none absolute aspect-square rounded-full mix-blend-difference"

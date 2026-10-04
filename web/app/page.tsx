@@ -5,6 +5,7 @@ import { fetchUser, fileNameFor, saveDraft, uploadSticker, type User } from "@/l
 import { exportEditedCanvas, offsetBounds, readFileAsImage, renderSticker } from "@/lib/canvas/render";
 import { CUP_HEIGHT, CUP_WIDTH, DEFAULT_BACKGROUND } from "@/lib/canvas/constants";
 import { drawStroke, replayStrokes, type Stroke, type StrokePoint } from "@/lib/canvas/strokes";
+import { hitText, renderTexts, type TextObj } from "@/lib/canvas/texts";
 import { sha1Hex } from "@/lib/dup-guard";
 import { ActionBar, type Status } from "@/components/ActionBar";
 import { BackgroundControls, type BackgroundSettings } from "@/components/BackgroundControls";
@@ -32,10 +33,12 @@ export default function Page() {
   // 三层画布：base 渲染基底（调参/换图重绘）、erase 擦除掩码、ink 画笔笔迹
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const eraseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const textCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  // 撤销/重做存矢量笔画（点列），内存可忽略、深度不限；重放成本很低
-  const strokes = useRef<Stroke[]>([]);
-  const redoStrokes = useRef<Stroke[]>([]);
+  // 撤销/重做存矢量记录（笔画点列 / 文字对象），内存可忽略、深度不限；重放成本很低
+  type HistoryEntry = { kind: "stroke"; stroke: Stroke } | { kind: "text"; text: TextObj };
+  const history = useRef<HistoryEntry[]>([]);
+  const redoStrokes = useRef<HistoryEntry[]>([]);
   // 渲染序号：异步渲染返回时序号过期则丢弃，避免旧结果覆盖新设置
   const renderSeq = useRef(0);
   const lastUploadHash = useRef<string | null>(null);
@@ -62,6 +65,13 @@ export default function Page() {
   const [pressureSensitive, setPressureSensitive] = useState(false);
   // Shift+点击直线的锚点：最后一笔的终点；撤销/重做同步更新
   const [strokeAnchor, setStrokeAnchor] = useState<StrokePoint | null>(null);
+  // 贴文字：新放置的默认值与当前选中对象（调整即时生效，不产生历史条目）
+  const [textContent, setTextContent] = useState("杯贴");
+  const [textSize, setTextSize] = useState(48);
+  const [textAngle, setTextAngle] = useState(0);
+  const [selectedTextId, setSelectedTextId] = useState<number | null>(null);
+  const [texts, setTexts] = useState<TextObj[]>([]);
+  const textIdCounter = useRef(0);
   // 取景：90° 步进旋转 + 画布坐标位移（钳制在 offsetBounds 内）；换图重置
   const [view, setView] = useState({ rotate: 0, offsetX: 0, offsetY: 0 });
   // 当前工具的生效粗细：画笔/橡皮擦各自记忆
@@ -209,9 +219,29 @@ export default function Page() {
     return () => clearTimeout(timer);
   }, [image, tone, bg, view]);
 
+  // 撤销/重做存矢量记录（笔画点列 / 文字对象），内存可忽略、深度不限；重放成本很低。
+  // 文字对象同时活在 texts state（渲染/面板用）与历史条目（撤销用）里，
+  // 调整时同步两处，保证 undo/redo 与所见一致。
+  const strokeEntries = () => history.current.filter((e) => e.kind === "stroke").map((e) => e.stroke);
+
+  // applyTexts 同步更新 texts state 与文字层画面（setState 异步，渲染必须直接用新列表）
+  const applyTexts = (next: TextObj[], sel: number | null = selectedTextId) => {
+    setTexts(next);
+    renderTexts(textCanvasRef.current, next, sel);
+  };
+  // patchTexts 供连续调整（滑块/拖动）：在最新 state 上计算，避免闭包旧值丢补丁
+  const patchTexts = (fn: (prev: TextObj[]) => TextObj[], sel: number | null = selectedTextId) => {
+    setTexts((prev) => {
+      const next = fn(prev);
+      renderTexts(textCanvasRef.current, next, sel);
+      return next;
+    });
+  };
+  const redrawTexts = () => applyTexts(texts);
+
   // 一笔完成：记入撤销栈并清空重做栈（新笔画使重做失效是编辑器惯例）
   const recordStroke = (s: Stroke) => {
-    strokes.current.push(s);
+    history.current.push({ kind: "stroke", stroke: s });
     redoStrokes.current = [];
     setStrokeAnchor(s.points[s.points.length - 1] ?? null);
     setCanUndo(true);
@@ -223,37 +253,102 @@ export default function Page() {
   // 双指轻点撤销（PreviewCanvas 手势）：撤销一笔并重放；撤销栈为空时
   // 也要重放——进行中的笔画（已画出但未入栈）需要被抹掉
   const gestureUndo = () => {
-    if (strokes.current.length === 0) {
-      replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, strokes.current, effectiveBg(bg));
+    if (history.current.length === 0) {
+      replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, [], effectiveBg(bg));
       return;
     }
     undo();
   };
 
   const syncUndoState = () => {
-    setCanUndo(strokes.current.length > 0);
+    setCanUndo(history.current.length > 0);
     setCanRedo(redoStrokes.current.length > 0);
   };
 
   const undo = () => {
-    const s = strokes.current.pop();
+    const s = history.current.pop();
     if (!s) return;
     redoStrokes.current.push(s);
     setPendingUpload(null);
-    replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, strokes.current, effectiveBg(bg));
-    const last = strokes.current[strokes.current.length - 1];
-    setStrokeAnchor(last ? last.points[last.points.length - 1] : null);
+    if (s.kind === "text") {
+      const sel = s.text.id === selectedTextId ? null : selectedTextId;
+      if (s.text.id === selectedTextId) setSelectedTextId(null);
+      applyTexts(texts.filter((t) => t.id !== s.text.id), sel);
+    } else {
+      replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, strokeEntries(), effectiveBg(bg));
+    }
+    const last = [...history.current].reverse().find((e) => e.kind === "stroke");
+    setStrokeAnchor(last && last.kind === "stroke" ? last.stroke.points[last.stroke.points.length - 1] : null);
     syncUndoState();
   };
 
-  // 重做只需补画弹出的这一笔（顺序与原始一致），无需全量重放
+  // 重做只需补画弹出的这一条（顺序与原始一致），无需全量重放
   const redo = () => {
     const s = redoStrokes.current.pop();
     if (!s) return;
-    strokes.current.push(s);
+    history.current.push(s);
     setPendingUpload(null);
-    drawStroke({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, s, effectiveBg(bg));
-    setStrokeAnchor(s.points[s.points.length - 1] ?? null);
+    if (s.kind === "text") {
+      applyTexts([...texts.filter((t) => t.id !== s.text.id), s.text]);
+    } else {
+      drawStroke({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, s.stroke, effectiveBg(bg));
+      setStrokeAnchor(s.stroke.points[s.stroke.points.length - 1] ?? null);
+    }
+    syncUndoState();
+  };
+
+  // 文字工具按下：命中已有文字则选中（可拖动/面板调整），否则在该点放置新文字
+  const textPointerDown = (p: { x: number; y: number }) => {
+    const hit = hitText(texts, p.x, p.y);
+    if (hit) {
+      setSelectedTextId(hit.id);
+      redrawTexts();
+      return;
+    }
+    const t: TextObj = {
+      id: ++textIdCounter.current,
+      content: textContent.trim() || "文字",
+      x: p.x,
+      y: p.y,
+      size: textSize,
+      angle: textAngle,
+    };
+    history.current.push({ kind: "text", text: t });
+    redoStrokes.current = [];
+    applyTexts([...texts, t], t.id);
+    setSelectedTextId(t.id);
+    setCanUndo(true);
+    setCanRedo(false);
+    setPendingUpload(null);
+  };
+
+  const selectedText = () => texts.find((t) => t.id === selectedTextId) ?? null;
+
+  // 文字调整：直接改对象（与笔画不可事后编辑的语义一致，不产生新条目）；
+  // 同步 texts state 与历史条目，redo 回来的对象保持调整后的值
+  const updateText = (id: number, patch: Partial<TextObj>) => {
+    history.current = history.current.map((e) =>
+      e.kind === "text" && e.text.id === id ? { ...e, text: { ...e.text, ...patch } } : e,
+    );
+    setPendingUpload(null);
+    patchTexts((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  };
+
+  const textDrag = (dx: number, dy: number) => {
+    const t = selectedText();
+    if (!t) return;
+    updateText(t.id, {
+      x: Math.max(0, Math.min(CUP_WIDTH, t.x + dx)),
+      y: Math.max(0, Math.min(CUP_HEIGHT, t.y + dy)),
+    });
+  };
+
+  const deleteSelectedText = () => {
+    if (selectedTextId === null) return;
+    history.current = history.current.filter((e) => !(e.kind === "text" && e.text.id === selectedTextId));
+    setSelectedTextId(null);
+    setPendingUpload(null);
+    applyTexts(texts.filter((t) => t.id !== selectedTextId), null);
     syncUndoState();
   };
 
@@ -274,10 +369,12 @@ export default function Page() {
       setImage(img);
       setImageName("空白画布");
       setView({ rotate: 0, offsetX: 0, offsetY: 0 });
-      strokes.current = [];
+      history.current = [];
       redoStrokes.current = [];
       setStrokeAnchor(null);
       replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, [], effectiveBg(bg));
+      setSelectedTextId(null);
+      applyTexts([], null);
       syncUndoState();
     };
     img.src = c.toDataURL("image/png");
@@ -297,7 +394,7 @@ export default function Page() {
           e.preventDefault();
           redo();
         } else {
-          if (strokes.current.length === 0) return;
+          if (history.current.length === 0) return;
           e.preventDefault();
           undo();
         }
@@ -311,6 +408,10 @@ export default function Page() {
         case "e":
         case "E":
           setTool("eraser");
+          break;
+        case "t":
+        case "T":
+          setTool("text");
           break;
         case "[":
           (tool === "eraser" ? setEraserSize : setBrushSize)((v) => Math.max(2, v - 2));
@@ -328,10 +429,11 @@ export default function Page() {
   const exportCurrent = (maxBytes?: number) => {
     const base = baseCanvasRef.current;
     const erase = eraseCanvasRef.current;
+    const text = textCanvasRef.current;
     const ink = inkCanvasRef.current;
-    if (!base || !erase || !ink) throw new Error("画布不可用");
+    if (!base || !erase || !text || !ink) throw new Error("画布不可用");
     // 橡皮擦掩码导出时抠回底色（开启背景替换用自定义色，否则默认杯底色），避免发白
-    return exportEditedCanvas({ base, erase, ink }, bg.enabled ? bg.color : DEFAULT_BACKGROUND, tone.forcePng, maxBytes);
+    return exportEditedCanvas({ base, erase, text, ink }, bg.enabled ? bg.color : DEFAULT_BACKGROUND, tone.forcePng, maxBytes);
   };
 
   const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -423,6 +525,7 @@ export default function Page() {
           <PreviewCanvas
             baseCanvasRef={baseCanvasRef}
             eraseCanvasRef={eraseCanvasRef}
+            textCanvasRef={textCanvasRef}
             inkCanvasRef={inkCanvasRef}
             ready={ready}
             tool={tool}
@@ -432,6 +535,8 @@ export default function Page() {
             strokeAnchor={strokeAnchor}
             onStrokeEnd={recordStroke}
             onPanDelta={panImage}
+            onTextPointerDown={textPointerDown}
+            onTextDrag={textDrag}
             onGestureUndo={gestureUndo}
           />
         </div>
@@ -474,6 +579,26 @@ export default function Page() {
             onUndo={undo}
             onRedo={redo}
             onTogglePressure={setPressureSensitive}
+            textContent={selectedText()?.content ?? textContent}
+            textSize={selectedText()?.size ?? textSize}
+            textAngle={selectedText()?.angle ?? textAngle}
+            textSelected={selectedTextId !== null}
+            onTextContent={(v) => {
+              const t = selectedText();
+              if (t) updateText(t.id, { content: v });
+              else setTextContent(v);
+            }}
+            onTextSize={(v) => {
+              const t = selectedText();
+              if (t) updateText(t.id, { size: v });
+              else setTextSize(v);
+            }}
+            onTextAngle={(v) => {
+              const t = selectedText();
+              if (t) updateText(t.id, { angle: v });
+              else setTextAngle(v);
+            }}
+            onDeleteText={deleteSelectedText}
           />
         </div>
         <div className="order-7 lg:col-start-2">
