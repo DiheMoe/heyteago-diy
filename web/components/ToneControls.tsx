@@ -1,6 +1,6 @@
 "use client";
 
-// 色调与适配参数。所有改动立即触发重新渲染（并丢弃画笔修改）。
+// 色调、适配与取景参数。改动经防抖后触发重新渲染（只重绘基底，笔触保留）。
 import type { DotPattern } from "@/lib/canvas/pixels";
 import type { FitMode, ToneMode } from "@/lib/canvas/render";
 
@@ -16,6 +16,9 @@ export interface ToneSettings {
 interface Props {
   value: ToneSettings;
   onChange(next: ToneSettings): void;
+  // 当前取景旋转角度（90° 步进）；onRotate 顺时针旋转 90°
+  rotate: number;
+  onRotate(): void;
 }
 
 const PATTERNS: Array<{ value: DotPattern; label: string }> = [
@@ -25,7 +28,7 @@ const PATTERNS: Array<{ value: DotPattern; label: string }> = [
   { value: "grid", label: "网格" },
 ];
 
-export function ToneControls({ value, onChange }: Props) {
+export function ToneControls({ value, onChange, rotate, onRotate }: Props) {
   const set = <K extends keyof ToneSettings>(key: K, v: ToneSettings[K]) =>
     onChange({ ...value, [key]: v });
 
@@ -113,11 +116,19 @@ export function ToneControls({ value, onChange }: Props) {
               {label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={onRotate}
+            title="顺时针旋转 90°"
+            className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs hover:bg-neutral-50"
+          >
+            旋转{rotate > 0 ? `（${rotate}°）` : ""}
+          </button>
         </div>
       </div>
 
       <label className="mt-3 flex items-center gap-1.5 text-xs text-neutral-600">
-        <input type="checkbox" checked={value.forcePng} onChange={(e) => set("forcePng", e.target.checked)} />
+        <input type="checkbox" className="accent-neutral-900" checked={value.forcePng} onChange={(e) => set("forcePng", e.target.checked)} />
         强制 PNG（压不进 200KB 时报错而不是转 JPEG）
       </label>
     </section>
@@ -142,7 +153,7 @@ function Slider({ label, min, max, step = 1, value, onChange }: {
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1"
+        className="flex-1 accent-neutral-900"
       />
       <span className="w-8 text-right font-mono text-xs text-neutral-700">{value}</span>
     </div>
