@@ -3,6 +3,8 @@
 // 操作区：存为草稿（主操作，App 内可继续编辑）/ 上传杯贴（次操作，两步确认）/ 下载 PNG。
 // 直接上传立即生效，确认态在点击「上传杯贴」导出产物后给出；
 // 与上次上传完全相同的提示并入确认态，不再单独弹窗打断。
+import { MAX_UPLOAD_BYTES } from "@/lib/canvas/constants";
+
 export interface Status {
   kind: "info" | "error" | "success";
   text: string;
@@ -10,6 +12,7 @@ export interface Status {
 
 export interface PendingUpload {
   duplicate: boolean;
+  sizeBytes: number;
 }
 
 interface Props {
@@ -41,6 +44,9 @@ export function ActionBar({
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
           <p className="text-xs font-medium text-amber-900">
             直接上传会立即发布到你的喜茶账号，日常更推荐「存为草稿」。
+          </p>
+          <p className="mt-1 text-xs text-amber-700">
+            导出大小 {Math.round(pendingUpload.sizeBytes / 1024)}KB / 上限 {MAX_UPLOAD_BYTES / 1024}KB
           </p>
           {pendingUpload.duplicate && (
             <p className="mt-1 text-xs text-amber-700">注意：这张图片与上次上传的完全相同。</p>

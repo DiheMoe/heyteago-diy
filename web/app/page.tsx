@@ -23,6 +23,7 @@ interface PendingUpload {
   blob: Blob;
   hash: string;
   duplicate: boolean;
+  sizeBytes: number;
 }
 
 export default function Page() {
@@ -251,6 +252,32 @@ export default function Page() {
     syncUndoState();
   };
 
+  // 新建空白画布：纯白底图进渲染管线（二值化后全白，底色替换后就是杯底色）。
+  // 视为全新开始：清空笔触与撤销/重做历史。
+  const handleBlank = () => {
+    const c = document.createElement("canvas");
+    c.width = CUP_WIDTH;
+    c.height = CUP_HEIGHT;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, CUP_WIDTH, CUP_HEIGHT);
+    const img = new Image();
+    img.onload = () => {
+      markRendering();
+      setPendingUpload(null);
+      setImage(img);
+      setImageName("空白画布");
+      setView({ rotate: 0, offsetX: 0, offsetY: 0 });
+      strokes.current = [];
+      redoStrokes.current = [];
+      setStrokeAnchor(null);
+      replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, [], effectiveBg(bg));
+      syncUndoState();
+    };
+    img.src = c.toDataURL("image/png");
+  };
+
 
   // 快捷键：Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 重做、B/E 切画笔橡皮、[ ] 调粗细。
   // 文本输入框内的按键不劫持（留给输入框自身）。
@@ -312,7 +339,7 @@ export default function Page() {
     try {
       const blob = await exportCurrent();
       const hash = await sha1Hex(blob);
-      setPendingUpload({ blob, hash, duplicate: hash === lastUploadHash.current });
+      setPendingUpload({ blob, hash, duplicate: hash === lastUploadHash.current, sizeBytes: blob.size });
     } catch (err) {
       setStatus({ kind: "error", text: errorText(err) });
     } finally {
@@ -385,9 +412,9 @@ export default function Page() {
         </p>
       </header>
 
-      {/* 桌面端：预览左列吸附，操作右列；移动端：选图 → 预览 → 参数 → 操作 */}
+      {/* 预览吸附：桌面端左列 sticky；移动端 sticky 在顶部（限高避免占满视口） */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="order-3 lg:col-start-1 lg:row-start-1 lg:row-span-7 lg:self-start lg:sticky lg:top-4">
+        <div className="sticky top-2 z-10 order-3 lg:col-start-1 lg:row-span-7 lg:row-start-1 lg:self-start lg:top-4">
           <PreviewCanvas
             baseCanvasRef={baseCanvasRef}
             eraseCanvasRef={eraseCanvasRef}
@@ -414,6 +441,15 @@ export default function Page() {
         </div>
         <div className="order-2 lg:col-start-2">
           <ImagePicker fileName={imageName} onPick={handlePick} onError={(text) => setStatus({ kind: "error", text })} />
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={handleBlank}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100"
+            >
+              新建空白画布
+            </button>
+          </div>
         </div>
         <div className="order-4 lg:col-start-2">
           <ToneControls value={tone} onChange={applyTone} rotate={view.rotate} onRotate={rotateImage} />
