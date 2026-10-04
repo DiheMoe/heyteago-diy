@@ -7,9 +7,14 @@ interface Props {
   fileName: string | null;
   onPick(file: File): void;
   onError(text: string): void;
+  onBlank(): void;
+  faqOpen: boolean;
+  shortcutsOpen: boolean;
+  onToggleFaq(): void;
+  onToggleShortcuts(): void;
 }
 
-export function ImagePicker({ fileName, onPick, onError }: Props) {
+export function ImagePicker({ fileName, onPick, onError, onBlank, faqOpen, shortcutsOpen, onToggleFaq, onToggleShortcuts }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -34,6 +39,9 @@ export function ImagePicker({ fileName, onPick, onError }: Props) {
     return () => window.removeEventListener("paste", onPaste);
   });
 
+  const utilBtn = "rounded-md px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700";
+  const utilBtnActive = "rounded-md px-2 py-1 text-xs text-neutral-800 bg-neutral-100";
+
   return (
     <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
       <div className="p-4 pb-3">
@@ -53,11 +61,11 @@ export function ImagePicker({ fileName, onPick, onError }: Props) {
             setDragging(false);
             accept(e.dataTransfer.files[0]);
           }}
-          className={`flex h-24 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed text-xs transition-colors ${
+          className={`flex h-14 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed text-xs transition-colors ${
             dragging ? "border-neutral-500 bg-neutral-100" : "border-neutral-300 bg-neutral-50 hover:bg-neutral-100"
           }`}
         >
-          {fileName ? `已选择：${fileName}（点击更换）` : "点击选择、拖拽或粘贴（Ctrl+V）图片"}
+          {fileName ? `已选择：${fileName}（点击更换）` : "点击选择、拖拽或粘贴图片"}
         </div>
         <input
           ref={inputRef}
@@ -69,6 +77,19 @@ export function ImagePicker({ fileName, onPick, onError }: Props) {
             e.target.value = "";
           }}
         />
+      </div>
+      <div className="flex items-center border-t border-neutral-100 px-2 py-1">
+        <button type="button" onClick={onBlank} className={utilBtn}>
+          新建空白画布
+        </button>
+        <div className="ml-auto flex items-center">
+          <button type="button" onClick={onToggleFaq} className={faqOpen ? utilBtnActive : utilBtn}>
+            常见问题
+          </button>
+          <button type="button" onClick={onToggleShortcuts} className={shortcutsOpen ? utilBtnActive : utilBtn}>
+            快捷键
+          </button>
+        </div>
       </div>
     </section>
   );

@@ -17,8 +17,7 @@ export function BackgroundControls({ value, onChange }: Props) {
     <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
       <h2 className="mb-3 text-sm font-semibold text-neutral-800">底色</h2>
       <label className="flex items-center gap-1.5 text-xs text-neutral-700">
-        <input
-          type="checkbox"
+        <input            type="checkbox"            className="accent-neutral-900"
           checked={value.enabled}
           onChange={(e) => onChange({ ...value, enabled: e.target.checked })}
         />
@@ -46,7 +45,7 @@ export function BackgroundControls({ value, onChange }: Props) {
               step={5}
               value={value.tolerance}
               onChange={(e) => onChange({ ...value, tolerance: Number(e.target.value) })}
-              className="flex-1"
+              className="flex-1 accent-neutral-900"
             />
             <span className="w-8 text-right font-mono text-xs text-neutral-700">{value.tolerance}</span>
           </div>

@@ -40,9 +40,7 @@ const ITEMS: Array<{ q: string; a: string[] }> = [
 
 export function Faq() {
   return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-sm font-semibold text-neutral-800">常见问题</h2>
-      <div className="space-y-3 text-xs">
+    <div className="space-y-3 text-xs">
         {ITEMS.map((item) => (
           <div key={item.q}>
             <p className="font-medium text-neutral-800">{item.q}</p>
@@ -53,7 +51,6 @@ export function Faq() {
             ))}
           </div>
         ))}
-      </div>
-    </section>
+    </div>
   );
 }
