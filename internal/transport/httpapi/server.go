@@ -52,8 +52,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		FileName:    header.Filename,
 		ContentType: header.Header.Get("Content-Type"),
 		File:        file,
-		Width:       parseIntOr(firstValue(form, "width"), domain.CupWidth),
-		Height:      parseIntOr(firstValue(form, "height"), domain.CupHeight),
+		// 画布尺寸缺省/非法值由 usecase 层回填默认，这里透传解析结果
+		Width:  parseIntOr(firstValue(form, "width")),
+		Height: parseIntOr(firstValue(form, "height")),
 	})
 	if err != nil {
 		writeError(w, err)
@@ -177,11 +178,12 @@ func firstValue(values map[string][]string, key string) string {
 	return ""
 }
 
-func parseIntOr(s string, fallback int) int {
+// parseIntOr 解析正整数表单值，缺失/非法返回 0（由 usecase 层回填默认值）。
+func parseIntOr(s string) int {
 	if n, err := strconv.Atoi(s); err == nil && n > 0 {
 		return n
 	}
-	return fallback
+	return 0
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
