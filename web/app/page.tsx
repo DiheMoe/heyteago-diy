@@ -12,7 +12,9 @@ import { BackgroundControls, type BackgroundSettings } from "@/components/Backgr
 import { BrushControls } from "@/components/BrushControls";
 import { Faq } from "@/components/Faq";
 import { ImagePicker } from "@/components/ImagePicker";
+import { Modal } from "@/components/Modal";
 import { PreviewCanvas, type Tool } from "@/components/PreviewCanvas";
+import { ShortcutsHelp } from "@/components/ShortcutsHelp";
 import { TokenPanel } from "@/components/TokenPanel";
 import { ToneControls, type ToneSettings } from "@/components/ToneControls";
 
@@ -83,6 +85,9 @@ export default function Page() {
   const [canRedo, setCanRedo] = useState(false);
   const [busy, setBusy] = useState<"render" | "upload" | "draft" | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  // 常见问题/快捷键默认收起，经原图卡片旁的按钮展开
+  const [faqOpen, setFaqOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
 
   // 账号查询统一失效机制：token 变化或新查询发起时递增，迟到的旧结果按序号丢弃。
@@ -319,34 +324,6 @@ export default function Page() {
     syncUndoState();
   };
 
-  // 新建空白画布：纯白底图进渲染管线（二值化后全白，底色替换后就是杯底色）。
-  // 视为全新开始：清空笔触/文字与撤销/重做历史。
-  const handleBlank = () => {
-    const c = document.createElement("canvas");
-    c.width = CUP_WIDTH;
-    c.height = CUP_HEIGHT;
-    const ctx = c.getContext("2d");
-    if (!ctx) return;
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, CUP_WIDTH, CUP_HEIGHT);
-    const img = new Image();
-    img.onload = () => {
-      markRendering();
-      setPendingUpload(null);
-      setImage(img);
-      setImageName("空白画布");
-      setView({ rotate: 0, offsetX: 0, offsetY: 0 });
-      history.current = [];
-      redoStrokes.current = [];
-      setStrokeAnchor(null);
-      setSelectedTextId(null);
-      applyTexts([], null);
-      replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, [], effectiveBg(bg));
-      syncUndoState();
-    };
-    img.src = c.toDataURL("image/png");
-  };
-
   // 重做只需补画弹出的这一条（顺序与原始一致），无需全量重放
   const redo = () => {
     const s = redoStrokes.current.pop();
@@ -431,11 +408,39 @@ export default function Page() {
     if (selectedTextId !== null) deleteTextById(selectedTextId);
   };
 
+  // 新建空白画布：纯白底图进渲染管线（二值化后全白，底色替换后就是杯底色）。
+  // 视为全新开始：清空笔触与撤销/重做历史。
+  const handleBlank = () => {
+    const c = document.createElement("canvas");
+    c.width = CUP_WIDTH;
+    c.height = CUP_HEIGHT;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, CUP_WIDTH, CUP_HEIGHT);
+    const img = new Image();
+    img.onload = () => {
+      markRendering();
+      setPendingUpload(null);
+      setImage(img);
+      setImageName("空白画布");
+      setView({ rotate: 0, offsetX: 0, offsetY: 0 });
+      history.current = [];
+      redoStrokes.current = [];
+      setStrokeAnchor(null);
+      replayStrokes({ ink: inkCanvasRef.current, erase: eraseCanvasRef.current }, [], effectiveBg(bg));
+      setSelectedTextId(null);
+      applyTexts([], null);
+      syncUndoState();
+    };
+    img.src = c.toDataURL("image/png");
+  };
 
   // 快捷键：Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 重做、B/E 切画笔橡皮、[ ] 调粗细。
   // 文本输入框内的按键不劫持（留给输入框自身）。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (faqOpen || shortcutsOpen) return; // 弹窗打开时挂起画布快捷键
       const t = e.target;
       if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
       if (e.ctrlKey || e.metaKey) {
@@ -620,16 +625,16 @@ export default function Page() {
           />
         </div>
         <div className="order-2 lg:col-start-2">
-          <ImagePicker fileName={imageName} onPick={handlePick} onError={(text) => setStatus({ kind: "error", text })} />
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              onClick={handleBlank}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100"
-            >
-              新建空白画布
-            </button>
-          </div>
+          <ImagePicker
+            fileName={imageName}
+            onPick={handlePick}
+            onError={(text) => setStatus({ kind: "error", text })}
+            onBlank={handleBlank}
+            faqOpen={faqOpen}
+            shortcutsOpen={shortcutsOpen}
+            onToggleFaq={() => setFaqOpen((v) => !v)}
+            onToggleShortcuts={() => setShortcutsOpen((v) => !v)}
+          />
         </div>
         <div className="order-4 lg:col-start-2">
           <ToneControls value={tone} onChange={applyTone} rotate={view.rotate} onRotate={rotateImage} />
@@ -664,9 +669,16 @@ export default function Page() {
             onDownload={handleDownload}
           />
         </div>
-        <div className="order-8 lg:col-start-2">
-          <Faq />
-        </div>
+        {shortcutsOpen && (
+          <Modal title="快捷键与手势" onClose={() => setShortcutsOpen(false)}>
+            <ShortcutsHelp />
+          </Modal>
+        )}
+        {faqOpen && (
+          <Modal title="常见问题" onClose={() => setFaqOpen(false)}>
+            <Faq />
+          </Modal>
+        )}
       </div>
 
       <footer className="mt-10 text-center text-xs text-neutral-400">
