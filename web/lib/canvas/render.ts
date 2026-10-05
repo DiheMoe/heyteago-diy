@@ -22,6 +22,29 @@ export interface RenderOptions {
   whiteTolerance: number;
   // true = 只允许 PNG（量化阶梯压不进上限就报错），false = PNG 之后可退 JPEG
   forcePng: boolean;
+  // 取景：rotate 为顺时针角度（90° 步进）；offsetX/offsetY 为画布坐标系的位移
+  rotate: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+// rotatedSize 返回旋转后图像的逻辑尺寸（90/270 时宽高互换）。
+function rotatedSize(image: HTMLImageElement, rotate: number): { w: number; h: number } {
+  return rotate % 180 !== 0
+    ? { w: image.height, h: image.width }
+    : { w: image.width, h: image.height };
+}
+
+// offsetBounds 是取景位移的合法范围：cover 平移不留白边（不超过溢出量一半），
+// contain 图像不推出画布。
+export function offsetBounds(image: HTMLImageElement, fit: FitMode, rotate: number): { maxX: number; maxY: number } {
+  const { w, h } = rotatedSize(image, rotate);
+  const scale =
+    fit === "cover" ? Math.max(CUP_WIDTH / w, CUP_HEIGHT / h) : Math.min(CUP_WIDTH / w, CUP_HEIGHT / h);
+  return {
+    maxX: Math.abs((w * scale - CUP_WIDTH) / 2),
+    maxY: Math.abs((h * scale - CUP_HEIGHT) / 2),
+  };
 }
 
 export function readFileAsImage(file: File): Promise<HTMLImageElement> {
@@ -38,25 +61,33 @@ export function readFileAsImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-// 把原图按当前设置渲染到 596×832 画布并导出压缩后的 Blob。
-// 返回的 Blob 同时作为预览与画笔编辑的基底。
-export async function renderSticker(
+// renderBase 把原图按当前设置渲染到 596×832 离屏画布：
+// 取景变换（平移到中心+offset → 旋转 → 按旋转后逻辑尺寸缩放）+ 色调/底色处理。
+// 不含压缩——是预览的快速通道；导出走 renderSticker。
+export function renderBase(
   image: HTMLImageElement,
   options: RenderOptions,
-): Promise<Blob> {
+): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = CUP_WIDTH;
   canvas.height = CUP_HEIGHT;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("当前浏览器不支持 Canvas");
 
+  const { w, h } = rotatedSize(image, options.rotate);
   const scale =
-    options.fit === "cover"
-      ? Math.max(CUP_WIDTH / image.width, CUP_HEIGHT / image.height)
-      : Math.min(CUP_WIDTH / image.width, CUP_HEIGHT / image.height);
-  const drawWidth = image.width * scale;
-  const drawHeight = image.height * scale;
-  ctx.drawImage(image, (CUP_WIDTH - drawWidth) / 2, (CUP_HEIGHT - drawHeight) / 2, drawWidth, drawHeight);
+    options.fit === "cover" ? Math.max(CUP_WIDTH / w, CUP_HEIGHT / h) : Math.min(CUP_WIDTH / w, CUP_HEIGHT / h);
+  ctx.save();
+  ctx.translate(CUP_WIDTH / 2 + options.offsetX, CUP_HEIGHT / 2 + options.offsetY);
+  ctx.rotate((options.rotate * Math.PI) / 180);
+  ctx.drawImage(
+    image,
+    (-image.width * scale) / 2,
+    (-image.height * scale) / 2,
+    image.width * scale,
+    image.height * scale,
+  );
+  ctx.restore();
 
   const imageData = ctx.getImageData(0, 0, CUP_WIDTH, CUP_HEIGHT);
   if (options.toneMode === "binary") {
@@ -68,37 +99,76 @@ export async function renderSticker(
     applyBackground(imageData, options.background, options.whiteTolerance);
   }
   ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
 
+// renderSticker 导出压缩后的 Blob（含量化阶梯，与实际上传产物一致；慢，勿用于实时预览）。
+export async function renderSticker(
+  image: HTMLImageElement,
+  options: RenderOptions,
+): Promise<Blob> {
+  const canvas = renderBase(image, options);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("当前浏览器不支持 Canvas");
+  const imageData = ctx.getImageData(0, 0, CUP_WIDTH, CUP_HEIGHT);
   return compressPngFirst(ctx, imageData, MAX_UPLOAD_BYTES, options.forcePng);
 }
 
-// 画笔编辑后的画布导出：不做量化（避免破坏笔触），PNG 优先、超限退 JPEG；
-// 底色开启时先合成到底色上（橡皮擦的透明孔洞变回底色）。
+// 分层画布：base=渲染基底，erase=擦除掩码（alpha 即形状），text=贴文字，ink=画笔笔迹。
+export interface LayeredCanvas {
+  base: HTMLCanvasElement;
+  erase: HTMLCanvasElement;
+  text: HTMLCanvasElement;
+  ink: HTMLCanvasElement;
+}
+
+// 画笔编辑后的分层画布导出：不做量化（避免破坏笔触）。
+// 合成：先单独抠出基底（base 减擦除掩码），再盖到底色上、叠文字、最后叠笔触——
+// 掩码只抠基底，不能抠穿底色（否则擦除区在导出里是透明而不是底色）。
+// forcePng 是用户对输出格式的选择：PNG 超过 maxBytes 时报错而不是静默退 JPEG。
+// maxBytes 默认对齐上传上限；本地下载传 Infinity（不受上传约束，始终导出 PNG）。
 export async function exportEditedCanvas(
-  canvas: HTMLCanvasElement,
+  layers: LayeredCanvas,
   background: string | null,
+  forcePng: boolean,
+  maxBytes = MAX_UPLOAD_BYTES,
 ): Promise<Blob> {
-  const source = background ? compositeOver(canvas, background) : canvas;
-  const png = await canvasToBlob(source, "image/png");
-  if (png && png.size <= MAX_UPLOAD_BYTES) return png;
+  const w = layers.base.width;
+  const h = layers.base.height;
+
+  const cut = document.createElement("canvas");
+  cut.width = w;
+  cut.height = h;
+  const cutCtx = cut.getContext("2d");
+  if (!cutCtx) throw new Error("当前浏览器不支持 Canvas");
+  cutCtx.drawImage(layers.base, 0, 0);
+  cutCtx.globalCompositeOperation = "destination-out";
+  cutCtx.drawImage(layers.erase, 0, 0);
+
+  const composited = document.createElement("canvas");
+  composited.width = w;
+  composited.height = h;
+  const ctx = composited.getContext("2d");
+  if (!ctx) throw new Error("当前浏览器不支持 Canvas");
+  if (background) {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(cut, 0, 0);
+  ctx.drawImage(layers.text, 0, 0);
+  ctx.drawImage(layers.ink, 0, 0);
+
+  const png = await canvasToBlob(composited, "image/png");
+  if (png && png.size <= maxBytes) return png;
+  if (forcePng) {
+    throw new Error(`编辑后 PNG 超过 ${Math.round(maxBytes / 1024)}KB 上限，请减少画笔修改或简化原图`);
+  }
   for (let quality = 0.95; quality >= 0.3; quality -= 0.05) {
-    const blob = await canvasToBlob(source, "image/jpeg", quality);
-    if (blob && blob.size <= MAX_UPLOAD_BYTES) return blob;
+    const blob = await canvasToBlob(composited, "image/jpeg", quality);
+    if (blob && blob.size <= maxBytes) return blob;
   }
   if (png) return png;
   throw new Error("无法导出图片");
-}
-
-function compositeOver(canvas: HTMLCanvasElement, background: string): HTMLCanvasElement {
-  const composited = document.createElement("canvas");
-  composited.width = canvas.width;
-  composited.height = canvas.height;
-  const ctx = composited.getContext("2d");
-  if (!ctx) return canvas;
-  ctx.fillStyle = background;
-  ctx.fillRect(0, 0, composited.width, composited.height);
-  ctx.drawImage(canvas, 0, 0);
-  return composited;
 }
 
 // PNG 量化阶梯（步进 0→192）压不进上限时，forcePng 报错，否则恢复像素退 JPEG 阶梯。
