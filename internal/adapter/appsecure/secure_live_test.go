@@ -24,10 +24,11 @@ func TestLiveHandshakeAndEncrypt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ticket, err := s.Ticket(ctx)
+	sess, err := s.Session(ctx)
 	if err != nil {
 		t.Fatalf("握手失败: %v", err)
 	}
+	ticket := sess.Ticket()
 	if ticket == "" {
 		t.Fatal("ticket 为空")
 	}
@@ -36,7 +37,7 @@ func TestLiveHandshakeAndEncrypt(t *testing.T) {
 	const smsPath = "/api/service-member/openapi/vip/user/sms/verifiyCode/send"
 	// 故意不带 mobile：若服务端成功解密，会在业务层因缺字段报错（非 invalid_payload）。
 	body, _ := json.Marshal(map[string]any{"client": "app", "brandId": "1000001", "zone": "86"})
-	enc, err := s.Encrypt(ctx, smsPath, body)
+	enc, err := sess.Encrypt(smsPath, body)
 	if err != nil {
 		t.Fatalf("加密失败: %v", err)
 	}

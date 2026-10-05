@@ -37,13 +37,17 @@ func (noopSigner) SignTrade(_ context.Context, _, _, _ string) (string, error) {
 // noopTransport 满足 usecase.SecureTransport；上传/用户链路不触碰安全传输，仅登录链路测试用真 fake。
 type noopTransport struct{}
 
-func (noopTransport) Ticket(_ context.Context) (string, error) { return "", nil }
-func (noopTransport) Encrypt(_ context.Context, _ string, body json.RawMessage) (json.RawMessage, error) {
+func (noopTransport) Session(_ context.Context) (usecase.SecureSession, error) {
+	return noopSession{}, nil
+}
+
+type noopSession struct{}
+
+func (noopSession) Ticket() string { return "" }
+func (noopSession) Encrypt(_ string, body json.RawMessage) (json.RawMessage, error) {
 	return body, nil
 }
-func (noopTransport) Decrypt(_ context.Context, _ string) (json.RawMessage, error) {
-	return nil, nil
-}
+func (noopSession) Decrypt(_ string) (json.RawMessage, error) { return nil, nil }
 
 // 断言上传请求与官方 App 抓包形状一致：路径、query、4 个头、表单字段。
 func TestUploadStickerRequestShape(t *testing.T) {

@@ -107,9 +107,14 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 	if err != nil {
 		return nil, err
 	}
-	// 网关对短信/登录路由强制密文请求体（明文实测报 invalid_payload）；
-	// 是否加密由握手时下发的路由规则决定，不加密的路由 Encrypt 原样返回。
-	raw, err = c.transport.Encrypt(ctx, path, raw)
+	// 网关对短信/登录路由强制密文请求体（明文实测报 invalid_payload）。
+	// 一次请求的加密、ticket Cookie 与响应解密共用同一份会话快照：
+	// 请求途中会话续期会造成 ticket/密钥错配（实测解密失败）。
+	sess, err := c.transport.Session(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("获取喜茶安全传输会话失败: %w", err)
+	}
+	raw, err = sess.Encrypt(path, raw)
 	if err != nil {
 		return nil, fmt.Errorf("喜茶安全传输加密请求体失败: %w", err)
 	}
@@ -122,13 +127,8 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 	for k, v := range extra {
 		req.Header.Set(k, v)
 	}
-	// 网关在登录/短信路径强制校验的 ticket Cookie（缺省实测返回 missing_ticket），
-	// 每次请求现取（会话内复用并在到期前自动续期）。
-	ticket, err := c.transport.Ticket(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("获取喜茶安全传输 ticket 失败: %w", err)
-	}
-	req.Header.Set("Cookie", "HeyteaSecureTransmissionTicket="+ticket)
+	// 网关在登录/短信路径强制校验的 ticket Cookie（缺省实测返回 missing_ticket）
+	req.Header.Set("Cookie", "HeyteaSecureTransmissionTicket="+sess.Ticket())
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -155,12 +155,12 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 	if env.Code != 0 {
 		return nil, &usecase.BusinessError{Code: env.Code, Message: env.Message}
 	}
-	// 加密路由的成功响应 data 可能是密文信封，需用同一会话解密后再取业务字段。
+	// 加密路由的成功响应 data 可能是密文信封，用同一会话快照解密后再取业务字段。
 	var sdata struct {
 		Blob string `json:"secure_encrypted_s_data"`
 	}
 	if err := json.Unmarshal(env.Data, &sdata); err == nil && sdata.Blob != "" {
-		plain, err := c.transport.Decrypt(ctx, sdata.Blob)
+		plain, err := sess.Decrypt(sdata.Blob)
 		if err != nil {
 			return nil, fmt.Errorf("喜茶安全传输解密响应失败: %w", err)
 		}

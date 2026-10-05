@@ -17,17 +17,24 @@ type Signer interface {
 	SignTrade(ctx context.Context, biz, path, timestamp string) (string, error)
 }
 
-// SecureTransport 提供登录链路的 Secure-Transmission 能力。
+// SecureTransport 提供登录链路的 Secure-Transmission 会话能力。
 // 网关在短信/登录路由强制校验 ticket Cookie（缺省报 missing_ticket）与
-// 密文请求体（明文报 invalid_payload）；实现侧进程内复用会话，调用方不做缓存。
+// 密文请求体（明文报 invalid_payload）。
 type SecureTransport interface {
-	// Ticket 现取一个 ticket，用作 Cookie HeyteaSecureTransmissionTicket。
-	Ticket(ctx context.Context) (string, error)
+	// Session 取一份会话快照（必要时先续期握手）。同一次请求的加密、ticket
+	// 与响应解密必须使用同一快照：请求途中会话续期会造成 ticket/密钥错配。
+	Session(ctx context.Context) (SecureSession, error)
+}
+
+// SecureSession 是一次请求的会话快照：只读、无锁、可并发使用。
+type SecureSession interface {
+	// Ticket 是该快照对应的 ticket，用作 Cookie HeyteaSecureTransmissionTicket。
+	Ticket() string
 	// Encrypt 按握手时下发的路由规则加密请求体，返回可直接 POST 的 JSON
 	// （密文信封 {"secure_encrypted_c_data":...} 或明文原样，由路由规则决定）。
-	Encrypt(ctx context.Context, path string, body json.RawMessage) (json.RawMessage, error)
+	Encrypt(path string, body json.RawMessage) (json.RawMessage, error)
 	// Decrypt 解密响应 data 里的 secure_encrypted_s_data 密文。
-	Decrypt(ctx context.Context, blob string) (json.RawMessage, error)
+	Decrypt(blob string) (json.RawMessage, error)
 }
 
 // StickerGateway 是喜茶 App 通道的出网端口。

@@ -34,23 +34,33 @@ func (f *fakeTradeSigner) SignTrade(_ context.Context, biz, path, ts string) (st
 	return f.sig, nil
 }
 
-// fakeTransport 模拟 Secure-Transmission：Encrypt 包成 base64 密文信封
+// fakeTransport 返回固定的会话快照；fakeSession 的 Encrypt 包成 base64 密文信封
 // （handler 可解码还原后断言原始字段），Decrypt 对称解 base64。
 type fakeTransport struct {
+	sess *fakeSession
+	err  error
+}
+
+func newFakeTransport(ticket string) *fakeTransport {
+	return &fakeTransport{sess: &fakeSession{ticket: ticket}}
+}
+
+func (f *fakeTransport) Session(_ context.Context) (usecase.SecureSession, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.sess, nil
+}
+
+type fakeSession struct {
 	ticket   string
-	err      error
 	encErr   error
 	encPaths []string
 }
 
-func (f *fakeTransport) Ticket(_ context.Context) (string, error) {
-	if f.err != nil {
-		return "", f.err
-	}
-	return f.ticket, nil
-}
+func (f *fakeSession) Ticket() string { return f.ticket }
 
-func (f *fakeTransport) Encrypt(_ context.Context, path string, body json.RawMessage) (json.RawMessage, error) {
+func (f *fakeSession) Encrypt(path string, body json.RawMessage) (json.RawMessage, error) {
 	f.encPaths = append(f.encPaths, path)
 	if f.encErr != nil {
 		return nil, f.encErr
@@ -60,7 +70,7 @@ func (f *fakeTransport) Encrypt(_ context.Context, path string, body json.RawMes
 	})
 }
 
-func (f *fakeTransport) Decrypt(_ context.Context, blob string) (json.RawMessage, error) {
+func (f *fakeSession) Decrypt(blob string) (json.RawMessage, error) {
 	return base64.StdEncoding.DecodeString(blob)
 }
 
@@ -99,7 +109,7 @@ func decodeBody(t *testing.T, r *http.Request) map[string]any {
 // 断言短信请求与官方 App 一致：路径、登录链路头组、加密手机号与固定字段；
 // body 经 Secure-Transmission 加密后以密文信封发出。
 func TestSendLoginSmsRequestShape(t *testing.T) {
-	transport := &fakeTransport{ticket: "st-123"}
+	transport := newFakeTransport("st-123")
 	var got struct {
 		path    string
 		headers http.Header
@@ -116,8 +126,8 @@ func TestSendLoginSmsRequestShape(t *testing.T) {
 		t.Fatalf("SendLoginSms error: %v", err)
 	}
 
-	if len(transport.encPaths) != 1 || transport.encPaths[0] != got.path {
-		t.Errorf("encPaths = %v, want [短信路径]", transport.encPaths)
+	if len(transport.sess.encPaths) != 1 || transport.sess.encPaths[0] != got.path {
+		t.Errorf("encPaths = %v, want [短信路径]", transport.sess.encPaths)
 	}
 
 	if got.headers.Get("Cookie") != "HeyteaSecureTransmissionTicket=st-123" {
@@ -172,7 +182,7 @@ func TestSendLoginSmsRequestShape(t *testing.T) {
 }
 
 func TestSendLoginSmsBusinessError(t *testing.T) {
-	c := newLoginTestClient(t, noopSigner{}, &fakeTransport{ticket: "st-123"}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, noopSigner{}, newFakeTransport("st-123"), func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"code":610015,"message":"发送太频繁","data":null}`))
 	})
 	err := c.SendLoginSms(context.Background(), usecase.LoginSms{Mobile: "13800138000"})
@@ -185,7 +195,7 @@ func TestSendLoginSmsBusinessError(t *testing.T) {
 // 滑块 ticket/randstr 同时给出才写入请求体（4005021 重试路径），单独一个不写。
 func TestSendLoginSmsCaptchaFields(t *testing.T) {
 	var got map[string]any
-	c := newLoginTestClient(t, noopSigner{}, &fakeTransport{ticket: "st-123"}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, noopSigner{}, newFakeTransport("st-123"), func(w http.ResponseWriter, r *http.Request) {
 		got = decodeBody(t, r)
 		_, _ = w.Write([]byte(`{"code":0,"message":"ok","data":{}}`))
 	})
@@ -220,7 +230,7 @@ func TestLoginByPhoneOK(t *testing.T) {
 		headers http.Header
 		body    map[string]any
 	}
-	c := newLoginTestClient(t, signer, &fakeTransport{ticket: "st-123"}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, signer, newFakeTransport("st-123"), func(w http.ResponseWriter, r *http.Request) {
 		got.path = r.URL.Path
 		got.headers = r.Header.Clone()
 		got.body = decodeBody(t, r)
@@ -288,7 +298,7 @@ func TestLoginByPhoneOK(t *testing.T) {
 func TestLoginByPhoneFallback(t *testing.T) {
 	signer := &fakeTradeSigner{sig: "hmac-abc"}
 	var paths []string
-	c := newLoginTestClient(t, signer, &fakeTransport{ticket: "st-123"}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, signer, newFakeTransport("st-123"), func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
 		if strings.Contains(r.URL.Path, "service-login-pms") {
 			_, _ = w.Write([]byte(`{"code":0,"message":"ok","data":{"token":"tok-pms"}}`))
@@ -317,7 +327,7 @@ func TestLoginByPhoneFallback(t *testing.T) {
 // 两条路径都失败时返回最后一次的错误（BusinessError）。
 func TestLoginByPhoneBothFail(t *testing.T) {
 	signer := &fakeTradeSigner{sig: "hmac-abc"}
-	c := newLoginTestClient(t, signer, &fakeTransport{ticket: "st-123"}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, signer, newFakeTransport("st-123"), func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "service-login-pms") {
 			_, _ = w.Write([]byte(`{"code":401,"message":"验证码已过期","data":null}`))
 			return
@@ -337,7 +347,7 @@ func TestLoginByPhoneBothFail(t *testing.T) {
 func TestLoginByPhoneSignError(t *testing.T) {
 	signer := &fakeTradeSigner{err: context.DeadlineExceeded}
 	called := false
-	c := newLoginTestClient(t, signer, &fakeTransport{ticket: "st-123"}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, signer, newFakeTransport("st-123"), func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	})
 
@@ -353,26 +363,26 @@ func TestLoginByPhoneSignError(t *testing.T) {
 	}
 }
 
-// 取 Secure-Transmission ticket 失败时直接报错，不发 HTTP（含"喜茶"字样，httpapi 映射 502）。
-func TestSendLoginSmsTicketError(t *testing.T) {
+// 取会话快照失败时直接报错，不发 HTTP（含"喜茶"字样，httpapi 映射 502）。
+func TestSendLoginSmsSessionError(t *testing.T) {
 	called := false
 	c := newLoginTestClient(t, noopSigner{}, &fakeTransport{err: context.DeadlineExceeded}, func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	})
 
 	err := c.SendLoginSms(context.Background(), usecase.LoginSms{Mobile: "13800138000"})
-	if err == nil || !strings.Contains(err.Error(), "获取喜茶安全传输 ticket 失败") {
-		t.Fatalf("err = %v, want 获取喜茶安全传输 ticket 失败", err)
+	if err == nil || !strings.Contains(err.Error(), "获取喜茶安全传输会话失败") {
+		t.Fatalf("err = %v, want 获取喜茶安全传输会话失败", err)
 	}
 	if called {
-		t.Fatal("取 ticket 失败时不应发出 HTTP 请求")
+		t.Fatal("取会话失败时不应发出 HTTP 请求")
 	}
 }
 
 // 请求体加密失败时直接报错，不发 HTTP。
 func TestSendLoginSmsEncryptError(t *testing.T) {
 	called := false
-	c := newLoginTestClient(t, noopSigner{}, &fakeTransport{ticket: "st-123", encErr: context.DeadlineExceeded}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, noopSigner{}, &fakeTransport{sess: &fakeSession{ticket: "st-123", encErr: context.DeadlineExceeded}}, func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	})
 
@@ -389,7 +399,7 @@ func TestSendLoginSmsEncryptError(t *testing.T) {
 func TestLoginByPhoneEncryptedResponse(t *testing.T) {
 	signer := &fakeTradeSigner{sig: "hmac-abc"}
 	blob := base64.StdEncoding.EncodeToString([]byte(`{"user":{"token":"tok-enc"}}`))
-	c := newLoginTestClient(t, signer, &fakeTransport{ticket: "st-123"}, func(w http.ResponseWriter, r *http.Request) {
+	c := newLoginTestClient(t, signer, newFakeTransport("st-123"), func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"code":0,"message":"ok","data":{"secure_encrypted_s_data":"` + blob + `"}}`))
 	})
 
@@ -412,7 +422,6 @@ func TestLiveSendLoginSms(t *testing.T) {
 		t.Skip("set HEYTEA_TEST_LIVE=1 to run")
 	}
 	src := appsecure.New(appsecure.DefaultConfig())
-	defer src.Close()
 
 	c := New(noopSigner{}, src)
 	err := c.SendLoginSms(context.Background(), usecase.LoginSms{Mobile: "123"})

@@ -9,7 +9,8 @@
 //	  AES-128-GCM(key=session_key[:16], iv=12 随机字节, aad="<tenant>_<version>")；
 //	  密文体 = base64(iv‖ciphertext‖tag) 包进 {"secure_encrypted_c_data":...}
 //
-// 会话在进程内复用，ticket 到期前自动重新握手；所有请求经互斥锁串行。
+// 会话在进程内复用，ticket 到期前自动重新握手；互斥锁只保护握手/续期，
+// 业务请求通过 Session 取会话快照（ticket/密钥/路由规则一致）后无锁使用。
 package appsecure
 
 import (
@@ -30,6 +31,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/DiheMoe/heyteago-diy/internal/usecase"
 )
 
 // 喜茶网关的 P-256 服务端公钥（App 内嵌，用于握手 ECDH 与签名）。
@@ -97,28 +100,42 @@ func New(cfg Config) *Source {
 	}
 }
 
-// Ticket 返回当前会话 ticket（用作 Cookie HeyteaSecureTransmissionTicket）。
-func (s *Source) Ticket(ctx context.Context) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.ensureSessionLocked(ctx); err != nil {
-		return "", err
-	}
-	return s.ticket, nil
-}
-
-// Encrypt 按路由规则加密请求体：命中 encryptType==0 的 url 原样返回明文，
-// 否则 AES-128-GCM 加密并包成密文信封。
-func (s *Source) Encrypt(ctx context.Context, path string, body json.RawMessage) (json.RawMessage, error) {
+// Session 取当前会话快照（实现 usecase.SecureSession）：快照内的 ticket、
+// 加解密钥与路由规则来自同一次握手，请求途中续期不影响已取出的快照。
+func (s *Source) Session(ctx context.Context) (usecase.SecureSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureSessionLocked(ctx); err != nil {
 		return nil, err
 	}
+	return &session{
+		key:       s.sessionKey,
+		ticket:    s.ticket,
+		plaintext: s.plaintext,
+		aad:       s.aad,
+	}, nil
+}
+
+// Close 无长驻资源，空实现（满足调用方 defer Close 习惯）。
+func (s *Source) Close() {}
+
+// session 是一次请求的会话快照：字段在握手时定型，只读、无锁、可并发使用。
+type session struct {
+	key       []byte // 32 字节；[:16] 为 AES-128-GCM 密钥
+	ticket    string
+	plaintext map[string]bool // encryptType==0 的 url，命中则明文直通
+	aad       []byte
+}
+
+func (s *session) Ticket() string { return s.ticket }
+
+// Encrypt 按路由规则加密请求体：命中 encryptType==0 的 url 原样返回明文，
+// 否则 AES-128-GCM 加密并包成密文信封。
+func (s *session) Encrypt(path string, body json.RawMessage) (json.RawMessage, error) {
 	if s.plaintext[path] {
 		return body, nil
 	}
-	blob, err := s.sealLocked(body)
+	blob, err := s.seal(body)
 	if err != nil {
 		return nil, err
 	}
@@ -126,29 +143,17 @@ func (s *Source) Encrypt(ctx context.Context, path string, body json.RawMessage)
 }
 
 // Decrypt 解密响应里的 secure_encrypted_s_data 密文。
-func (s *Source) Decrypt(ctx context.Context, blob string) (json.RawMessage, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.ensureSessionLocked(ctx); err != nil {
-		return nil, err
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimRight(blob, "="))
+func (s *session) Decrypt(blob string) (json.RawMessage, error) {
+	raw, err := base64.StdEncoding.DecodeString(pad(blob))
 	if err != nil {
-		// 容错：按带填充再试一次
-		raw, err = base64.StdEncoding.DecodeString(pad(blob))
-		if err != nil {
-			return nil, fmt.Errorf("密文 base64 解析失败: %w", err)
-		}
+		return nil, fmt.Errorf("密文 base64 解析失败: %w", err)
 	}
-	plain, err := s.openLocked(raw)
+	plain, err := s.open(raw)
 	if err != nil {
 		return nil, err
 	}
 	return json.RawMessage(plain), nil
 }
-
-// Close 无长驻资源，空实现（满足调用方 defer Close 习惯）。
-func (s *Source) Close() {}
 
 // --- 会话管理 ---
 
@@ -238,9 +243,9 @@ func deriveSessionKey(sharedX, clientRandom, serverRandom []byte) []byte {
 	return mac.Sum(nil)
 }
 
-// --- AES-128-GCM 封装/解封 ---
+// --- AES-128-GCM 封装/解封（会话快照上的纯计算） ---
 
-func (s *Source) sealLocked(plain []byte) (string, error) {
+func (s *session) seal(plain []byte) (string, error) {
 	gcm, err := s.gcm()
 	if err != nil {
 		return "", err
@@ -253,7 +258,7 @@ func (s *Source) sealLocked(plain []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(append(iv, ct...)), nil
 }
 
-func (s *Source) openLocked(blob []byte) ([]byte, error) {
+func (s *session) open(blob []byte) ([]byte, error) {
 	gcm, err := s.gcm()
 	if err != nil {
 		return nil, err
@@ -265,8 +270,8 @@ func (s *Source) openLocked(blob []byte) ([]byte, error) {
 	return gcm.Open(nil, blob[:ns], blob[ns:], s.aad)
 }
 
-func (s *Source) gcm() (cipher.AEAD, error) {
-	block, err := aes.NewCipher(s.sessionKey[:16]) // AES-128
+func (s *session) gcm() (cipher.AEAD, error) {
+	block, err := aes.NewCipher(s.key[:16]) // AES-128
 	if err != nil {
 		return nil, err
 	}
