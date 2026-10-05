@@ -9,7 +9,7 @@
 // 短信/登录/查用户的反馈内联在本面板：全局状态条在 ActionBar，
 // 离本面板较远，发送回执放那里容易被忽略。
 import { useEffect, useRef, useState } from "react";
-import { fetchUser, loginByPhone, requestLoginSms, type User } from "@/lib/api";
+import { loginByPhone, requestLoginSms, type User } from "@/lib/api";
 import { HEYTEA_CAPTCHA_APP_ID, runCaptcha } from "@/lib/captcha";
 import { loginWithCaptcha, maskPhone, sendLoginSms, type SmsLoginDeps } from "@/lib/sms-login";
 
@@ -31,7 +31,8 @@ interface Props {
   token: string;
   remember: boolean;
   user: User | null;
-  busy: boolean;
+  // 统一账号查询入口（自动恢复与手动查询共用失效机制；null = 结果已过期）
+  fetchUserGuarded(token: string): Promise<User | null>;
   onTokenChange(token: string, remember: boolean): void;
   onUserChange(user: User | null): void;
 }
@@ -40,7 +41,7 @@ function errorText(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserChange }: Props) {
+export function TokenPanel({ token, remember, user, fetchUserGuarded, onTokenChange, onUserChange }: Props) {
   const [loadingUser, setLoadingUser] = useState(false);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -50,6 +51,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
   const [loggingIn, setLoggingIn] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const codeInputRef = useRef<HTMLInputElement | null>(null);
+  // 查询结果失效由父组件的统一机制保证（fetchUserGuarded 返回 null 即过期）
 
   // 冷却倒计时逐秒递减；换号不清零——冷却约束的是发送频率，不是某个号码
   useEffect(() => {
@@ -62,12 +64,16 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
     setLoadingUser(true);
     setFeedback(null);
     try {
-      onUserChange(await fetchUser(token || undefined));
+      const next = await fetchUserGuarded(token);
+      if (!next) return; // 返回途中 token 已切换，结果已被统一机制丢弃
+      onUserChange(next);
       setFeedback({ kind: "success", text: "用户信息查询成功" });
     } catch (err) {
       onUserChange(null);
       setFeedback({ kind: "error", text: errorText(err, "查询用户失败") });
     } finally {
+      // 无论结果是否过期，本次查询都已结束（按钮点击时会被 disabled 挡住并发，
+      // 过期场景没有新查询接管 loading 状态）
       setLoadingUser(false);
     }
   };
@@ -135,7 +141,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <button
           type="button"
           onClick={sendSms}
-          disabled={sending || loggingIn || busy || cooldown > 0}
+          disabled={sending || loggingIn || cooldown > 0}
           className="shrink-0 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
         >
           {sendLabel}
@@ -157,7 +163,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <button
           type="button"
           onClick={login}
-          disabled={!phone || !code || loggingIn || sending || busy}
+          disabled={!phone || !code || loggingIn || sending}
           className="shrink-0 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs text-white hover:bg-neutral-700 disabled:opacity-50"
         >
           {loggingIn ? "登录中…" : "登录"}
@@ -187,7 +193,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <button
           type="button"
           onClick={queryUser}
-          disabled={loadingUser || busy}
+          disabled={loadingUser}
           className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs text-white hover:bg-neutral-700 disabled:opacity-50"
         >
           {loadingUser ? "查询中…" : "查询用户"}
@@ -195,6 +201,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
         <label className="flex items-center gap-1.5 text-xs text-neutral-600">
           <input
             type="checkbox"
+            className="accent-neutral-900"
             checked={remember}
             onChange={(e) => onTokenChange(token, e.target.checked)}
           />
@@ -213,7 +220,7 @@ export function TokenPanel({ token, remember, user, busy, onTokenChange, onUserC
             </div>
           </div>
         ) : (
-          <p className="text-xs text-neutral-600">未登录 —— 使用手机号登录，或粘贴 token 后点击「查询用户」</p>
+          <p className="text-xs text-neutral-600">未登录</p>
         )}
       </div>
     </section>

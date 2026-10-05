@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { saveDraft, uploadSticker, type User } from "@/lib/api";
+import { fetchUser, fileNameFor, saveDraft, uploadSticker, type User } from "@/lib/api";
 import { exportEditedCanvas, readFileAsImage, renderSticker } from "@/lib/canvas/render";
 import { CUP_HEIGHT, CUP_WIDTH, DEFAULT_BACKGROUND } from "@/lib/canvas/constants";
 import { sha1Hex } from "@/lib/dup-guard";
@@ -65,13 +65,29 @@ export default function Page() {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setToken(saved);
         setRemember(true);
+        // 恢复的 token 直接查一次用户（走统一失效机制），免得手动再点「查询用户」
+        fetchUserGuarded(saved)
+          .then((u) => {
+            if (u) setUser(u);
+          })
+          .catch(() => setStatus({ kind: "error", text: "本地保存的 token 已失效，请重新登录" }));
       }
     } catch {
       // localStorage 不可用（隐私模式等）时仅不持久化
     }
   }, []);
 
+  // 账号查询统一失效机制：token 变化或新查询发起时递增，迟到的旧结果按序号丢弃。
+  // 自动恢复与手动「查询用户」共用，防止串号。
+  const userQuerySeq = useRef(0);
+  const fetchUserGuarded = async (t: string): Promise<User | null> => {
+    const seq = ++userQuerySeq.current;
+    const u = await fetchUser(t || undefined);
+    return seq === userQuerySeq.current ? u : null;
+  };
+
   const handleTokenChange = (next: string, rememberNext: boolean) => {
+    userQuerySeq.current++; // 使在途的旧账号查询结果过期
     setToken(next);
     setRemember(rememberNext);
     setUser(null);
@@ -234,7 +250,7 @@ export default function Page() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = blob.type === "image/jpeg" ? "cup.jpg" : "cup.png";
+      a.download = fileNameFor(blob);
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -270,7 +286,7 @@ export default function Page() {
             token={token}
             remember={remember}
             user={user}
-            busy={busy !== null}
+            fetchUserGuarded={fetchUserGuarded}
             onTokenChange={handleTokenChange}
             onUserChange={setUser}
           />
