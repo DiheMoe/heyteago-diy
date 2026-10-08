@@ -4,7 +4,7 @@ import { createLatestOnly } from "./latest-only";
 
 const TOKEN_STORAGE_KEY = "heyteago-diy:token";
 
-// 账号卡片上的提示：登录过期、暂时无法验证登录状态
+// 账号卡片上的提示：登录失效、暂时无法验证登录状态
 export interface AccountNotice {
   text: string;
   // 暂时无法验证（网络或喜茶服务异常）时提供重试
@@ -28,16 +28,16 @@ export interface Account {
   // 喜茶判定登录态失效（发布、存草稿时）：退出登录并提示
   expire(): void;
   // 确认当前 token 对应的用户。返回 null 表示期间账号已变、结果作废。
-  // 失败时：token 被拒 → 退出登录并提示过期；网络或服务异常 → 保留 token，提示可重试；随后抛出
+  // 失败时：token 被拒 → 退出登录并提示失效；网络或服务异常 → 保留 token，提示可重试；随后抛出
   queryUser(): Promise<User | null>;
 }
 
 interface Options {
-  // 账号会话重置时调用：换 token、登录、退出登录、登录过期；切换「在本机保持登录」不算
+  // 账号会话重置时调用：换 token、登录、退出登录、登录失效；切换「在本机保持登录」不算
   onAccountChange(): void;
 }
 
-const EXPIRED: AccountNotice = { text: "登录已过期，请重新登录", retry: false };
+const EXPIRED: AccountNotice = { text: "登录已失效，请重新登录", retry: false };
 const UNAVAILABLE: AccountNotice = { text: "暂时无法验证登录状态（网络或喜茶服务异常）", retry: true };
 
 function saveToken(token: string | null) {

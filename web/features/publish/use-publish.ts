@@ -34,7 +34,7 @@ export function usePublish({ store, canvas, account, submission, report }: Optio
   const reportFailure = (err: unknown, otherwise: string) => {
     if (!isSessionExpired(err)) return reportError(otherwise);
     account.expire();
-    reportError("登录已过期，请重新登录后再试");
+    reportError("登录已失效，请重新登录后再试");
   };
 
   // 直接上传第一步：导出并查重，进入确认态（不发请求）

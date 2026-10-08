@@ -195,12 +195,12 @@ test.describe("发布与存草稿", () => {
     expect(api.count("/api/upload")).toBe(0);
   });
 
-  test("发布时登录已过期：退出登录并提示重新登录", async ({ page, api, editor }) => {
+  test("发布时登录已失效：退出登录并提示重新登录", async ({ page, api, editor }) => {
     api.queueUploads("expired");
     await editor.button("发布杯贴").click();
     await editor.button("确认发布").click();
 
-    await expect(page.getByText("登录已过期，请重新登录后再试")).toBeVisible();
+    await expect(page.getByText("登录已失效，请重新登录后再试")).toBeVisible();
     await expect(page.getByText("已登录：测试账号")).toBeHidden();
     await expect(page.getByText(/^发布结果未知/)).toBeHidden();
     expect(await page.evaluate(() => localStorage.getItem("heyteago-diy:token"))).toBeNull();

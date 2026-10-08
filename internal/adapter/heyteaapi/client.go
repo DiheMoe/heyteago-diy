@@ -112,8 +112,8 @@ func (c *Client) UserInfo(ctx context.Context, token string) (domain.User, error
 	if err != nil {
 		return domain.User{}, fmt.Errorf("%w: 读取响应失败: %w", usecase.ErrUpstreamUnreachable, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return domain.User{}, fmt.Errorf("%w: HTTP %d: %.200s", usecase.ErrUpstreamBadResponse, resp.StatusCode, raw)
+	if err := statusError(resp.StatusCode, raw); err != nil {
+		return domain.User{}, err
 	}
 
 	var env struct {
@@ -151,8 +151,8 @@ func (c *Client) post(ctx context.Context, url string, body *bytes.Buffer, conte
 	if err != nil {
 		return domain.Result{}, fmt.Errorf("%w: 读取响应失败: %w", usecase.ErrUpstreamUnreachable, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return domain.Result{}, fmt.Errorf("%w: HTTP %d: %.200s", usecase.ErrUpstreamBadResponse, resp.StatusCode, raw)
+	if err := statusError(resp.StatusCode, raw); err != nil {
+		return domain.Result{}, err
 	}
 
 	var res domain.Result
@@ -160,6 +160,20 @@ func (c *Client) post(ctx context.Context, url string, body *bytes.Buffer, conte
 		return domain.Result{}, fmt.Errorf("%w: 响应解析失败: %.200s", usecase.ErrUpstreamBadResponse, raw)
 	}
 	return res, nil
+}
+
+// statusError 把喜茶的非 200 响应转成错误，200 返回 nil。
+// 喜茶网关拒绝 token 时回 HTTP 401（响应体 {"code":401,"message":"Unauthorized"}）：请求在网关就被拒、一定没有生效，
+// 按登录失效（业务码 401）上报；其余状态算喜茶服务异常。
+func statusError(status int, raw []byte) error {
+	switch status {
+	case http.StatusOK:
+		return nil
+	case http.StatusUnauthorized:
+		return &usecase.BusinessError{Code: http.StatusUnauthorized, Message: "登录态失效"}
+	default:
+		return fmt.Errorf("%w: HTTP %d: %.200s", usecase.ErrUpstreamBadResponse, status, raw)
+	}
 }
 
 // setHeaders 与官方 App 保持一致：除 multipart 的 Content-Type 外只有 3 个头。

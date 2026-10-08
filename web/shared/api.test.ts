@@ -16,7 +16,7 @@ describe("isRequestRejected", () => {
 });
 
 describe("isSessionExpired", () => {
-  it("只有喜茶的业务码 401（登录态失效）才算登录过期", () => {
+  it("只有喜茶的业务码 401（登录态失效）才算登录失效", () => {
     expect(isSessionExpired(new ApiError("登录态失效", 400, 401))).toBe(true);
     expect(isSessionExpired(new ApiError("图片审核未通过", 400, 50001))).toBe(false);
     expect(isSessionExpired(new ApiError("请求失败（HTTP 401）", 401))).toBe(false);

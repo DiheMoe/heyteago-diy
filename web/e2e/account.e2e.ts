@@ -45,10 +45,10 @@ test.describe("账号", () => {
     await expect(page.getByText("已登录：测试账号")).toBeVisible();
   });
 
-  test("本机保存的登录已过期：提示重新登录，并清除保存的 token", async ({ page, api, editor }) => {
+  test("本机保存的登录已失效：提示重新登录，并清除保存的 token", async ({ page, api, editor }) => {
     api.queueUser("expired");
     await editor.open({ savedToken: true });
-    await expect(page.getByText("登录已过期，请重新登录")).toBeVisible();
+    await expect(page.getByText("登录已失效，请重新登录")).toBeVisible();
     await expect(editor.button("登录")).toBeVisible();
     expect(await page.evaluate((key) => localStorage.getItem(key), TOKEN_KEY)).toBeNull();
   });

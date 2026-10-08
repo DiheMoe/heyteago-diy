@@ -229,6 +229,41 @@ func TestBusinessCodeSurfaces(t *testing.T) {
 	}
 }
 
+// 喜茶网关拒绝 token 时回 HTTP 401，响应体同样是 code/message 信封：
+// 这是 token 无效，查用户、发布、存草稿都要按登录失效（业务码 401）上报，而不是喜茶服务异常
+func TestUnauthorizedIsSessionExpired(t *testing.T) {
+	calls := map[string]func(*Client) error{
+		"UserInfo": func(c *Client) error {
+			_, err := c.UserInfo(context.Background(), "wrong-token")
+			return err
+		},
+		"UploadSticker": func(c *Client) error {
+			_, err := c.UploadSticker(context.Background(), usecase.StickerUpload{
+				Token: "wrong-token", UserMainID: "1", Hash: "h", FileName: "cup.png", ContentType: "image/png", File: []byte("x"),
+			})
+			return err
+		},
+		"SaveDraft": func(c *Client) error {
+			_, err := c.SaveDraft(context.Background(), usecase.DraftSave{
+				Token: "wrong-token", Hash: "h", FileName: "cup.png", ContentType: "image/png", File: []byte("x"),
+			})
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"code":401,"message":"Unauthorized","requestId":null,"data":null}`))
+			})
+			var be *usecase.BusinessError
+			if err := call(c); !errors.As(err, &be) || be.Code != 401 {
+				t.Fatalf("err = %v, want BusinessError 401", err)
+			}
+		})
+	}
+}
+
 func TestHTTPErrorSurfaces(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
