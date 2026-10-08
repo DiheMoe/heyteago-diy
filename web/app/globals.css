@@ -5,3 +5,23 @@
   --font-sans: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* 触屏上按钮、复选框、滑块等触控目标至少 40px，手指点得准 */
+@layer base {
+  @media (pointer: coarse) {
+    button {
+      min-height: 40px;
+      min-width: 40px;
+    }
+    label:has(> input[type="checkbox"]) {
+      min-height: 40px;
+    }
+    input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+    }
+    input[type="range"] {
+      min-height: 40px;
+    }
+  }
+}
