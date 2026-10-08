@@ -222,3 +222,38 @@ test("触屏上关键控件的触控目标至少 40px", async ({ page, editor })
     expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(40);
   }
 });
+
+test.describe("320px 宽的小屏", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("按钮文字都在一行，也不超出所在卡片", async ({ page, editor }) => {
+    await editor.open();
+    await editor.newBlankCanvas();
+    // 点阵模式才有「网点形状」那一排按钮
+    await editor.button("黑白点阵").click();
+    const problems = await page.evaluate(() =>
+      [...document.querySelectorAll("section button")].flatMap((button) => {
+        const box = button.getBoundingClientRect();
+        if (box.width === 0) return [];
+        const card = button.closest("section")!.getBoundingClientRect();
+        // 按文字片段的纵向位置数行：相邻片段的 top 相差超过半个字号算换了一行
+        const half = parseFloat(getComputedStyle(button).fontSize) / 2;
+        const tops: number[] = [];
+        const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          for (const rect of range.getClientRects()) if (rect.width > 0) tops.push(rect.top);
+        }
+        tops.sort((a, b) => a - b);
+        const lines = tops.filter((top, i) => i === 0 || top - tops[i - 1] > half).length;
+        const name = button.textContent!.trim();
+        return [
+          ...(lines > 1 ? [`「${name}」折成了 ${lines} 行`] : []),
+          ...(box.left < card.left - 0.5 || box.right > card.right + 0.5 ? [`「${name}」超出卡片`] : []),
+        ];
+      }),
+    );
+    expect(problems).toEqual([]);
+  });
+});

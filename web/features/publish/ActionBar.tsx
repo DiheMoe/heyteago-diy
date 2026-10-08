@@ -1,7 +1,7 @@
 "use client";
 
-// 操作区：存为喜茶草稿（主操作，App 内可继续编辑）/ 发布杯贴（次操作，两步确认）/ 下载 PNG，
-// 浏览器支持分享图片时还有「分享 / 存到相册」。下载、分享只导出本地画布，不需要登录；草稿与发布需要登录。
+// 操作区：存为喜茶草稿（主操作，App 内可继续编辑）/ 发布杯贴（次操作，两步确认）/ 下载 PNG。
+// 下载只导出本地画布，不需要登录；草稿与发布需要登录。
 // 发布会立即生效，确认态在点击「发布杯贴」导出产物后给出；
 // 与上次上传完全相同的提示并入确认态，不再单独弹窗打断。
 // 发布途中编辑画布会收起确认态，主按钮继续显示「发布中…」，进度提示不丢。
@@ -17,8 +17,6 @@ export interface Status {
 export interface ActionBarProps {
   canSubmit: boolean;
   canDownload: boolean;
-  // 浏览器支持系统分享图片
-  canShare: boolean;
   signedIn: boolean;
   submitting: SubmitKind | null;
   status: Status | null;
@@ -28,13 +26,11 @@ export interface ActionBarProps {
   onCancelUpload(): void;
   onSaveDraft(): void;
   onDownload(): void;
-  onShare(): void;
 }
 
 export function ActionBar({
   canSubmit,
   canDownload,
-  canShare,
   signedIn,
   submitting,
   status,
@@ -44,7 +40,6 @@ export function ActionBar({
   onCancelUpload,
   onSaveDraft,
   onDownload,
-  onShare,
 }: ActionBarProps) {
   return (
     <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
@@ -110,16 +105,6 @@ export function ActionBar({
             >
               下载 PNG
             </button>
-            {canShare && (
-              <button
-                type="button"
-                onClick={onShare}
-                disabled={!canDownload}
-                className="rounded-lg border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50 disabled:opacity-40"
-              >
-                分享 / 存到相册
-              </button>
-            )}
           </div>
           <ul className="mt-2 space-y-0.5 text-xs text-neutral-500">
             <li>存为喜茶草稿：会替换喜茶里现有的草稿，可在小程序里继续编辑</li>

@@ -19,7 +19,7 @@ function offscreen(): HTMLCanvasElement {
   return canvas;
 }
 
-// maxBytes 缺省为上传上限，成品超过时抛错提示；本地下载、分享传 Infinity（本地文件不受上传约束）
+// maxBytes 缺省为上传上限，成品超过时抛错提示；本地下载传 Infinity（本地文件不受上传约束）
 export async function exportImage(src: ExportSource, maxBytes = MAX_UPLOAD_BYTES): Promise<Blob> {
   // 选中虚线框是编辑器装饰，不进导出：文字层按无选中态另画一张离屏画布
   const text = offscreen();

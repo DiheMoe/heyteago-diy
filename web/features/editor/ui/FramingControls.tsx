@@ -26,7 +26,7 @@ export function FramingControls({ view, hasImage, hasDrawing, onFit, onRotate }:
 
       <div className="flex items-center gap-2">
         <span className="w-20 text-xs text-neutral-500">适配方式</span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {FITS.map(([mode, label]) => (
             <button
               key={mode}
@@ -40,18 +40,22 @@ export function FramingControls({ view, hasImage, hasDrawing, onFit, onRotate }:
               {label}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={onRotate}
-            disabled={!hasImage}
-            title="顺时针旋转 90°"
-            className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs hover:bg-neutral-50 disabled:opacity-40"
-          >
-            旋转
-          </button>
-          {/* 当前角度放在按钮外的定宽位置：按钮宽度不随角度变化 */}
-          <span className="w-9 text-xs tabular-nums text-neutral-500">{view.rotate > 0 ? `${view.rotate}°` : ""}</span>
         </div>
+      </div>
+
+      <div className="mt-2 flex items-center gap-2">
+        <span className="w-20 text-xs text-neutral-500">方向</span>
+        <button
+          type="button"
+          onClick={onRotate}
+          disabled={!hasImage}
+          title="顺时针旋转 90°"
+          className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs hover:bg-neutral-50 disabled:opacity-40"
+        >
+          旋转
+        </button>
+        {/* 当前角度放在按钮外：按钮宽度不随角度变化 */}
+        <span className="text-xs tabular-nums text-neutral-500">{view.rotate > 0 ? `${view.rotate}°` : ""}</span>
       </div>
 
       <p className="mt-3 text-xs text-neutral-500">调整位置：选「移动」工具后拖动预览。</p>

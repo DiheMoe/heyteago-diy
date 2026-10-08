@@ -6,8 +6,13 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* 触屏上按钮、复选框、滑块等触控目标至少 40px，手指点得准 */
 @layer base {
+  /* 按钮文字不折行：一排放不下时整个按钮换到下一行，不会把「裁剪填满」挤成「裁剪填 / 满」 */
+  button {
+    white-space: nowrap;
+  }
+
+  /* 触屏上按钮、复选框、滑块等触控目标至少 40px，手指点得准 */
   @media (pointer: coarse) {
     button {
       min-height: 40px;

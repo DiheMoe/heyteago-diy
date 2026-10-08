@@ -70,7 +70,7 @@ export function ToneControls({ value, onChange }: Props) {
           />
           <div className="mt-3 flex items-center gap-2">
             <span className="w-20 text-xs text-neutral-500">网点形状</span>
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {PATTERNS.map((p) => (
                 <button
                   key={p.value}

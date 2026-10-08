@@ -62,32 +62,3 @@ test("下载的文件名带日期和时间", async ({ page, editor }) => {
   const [file] = await Promise.all([page.waitForEvent("download"), editor.button("下载 PNG").click()]);
   expect(file.suggestedFilename()).toMatch(/^heytea-cup-\d{8}-\d{6}\.png$/);
 });
-
-test("浏览器支持分享图片时，「分享 / 存到相册」把成品交给系统分享；被要求重新点击时再点一次即可", async ({ page, editor }) => {
-  await page.addInitScript(() => {
-    const w = window as unknown as { shared?: Array<{ name: string; type: string }>; shareCalls: number };
-    w.shareCalls = 0;
-    navigator.canShare = () => true;
-    navigator.share = async (data?: ShareData) => {
-      w.shareCalls++;
-      // 第一次模拟浏览器以「点击已过期」拒绝
-      if (w.shareCalls === 1) throw new DOMException("需要用户操作", "NotAllowedError");
-      w.shared = (data?.files ?? []).map((f) => ({ name: f.name, type: f.type }));
-    };
-  });
-  await editor.open();
-  await editor.newBlankCanvas();
-
-  await editor.button("分享 / 存到相册").click();
-  await expect(page.getByText("请再点一次「分享 / 存到相册」")).toBeVisible();
-  await editor.button("分享 / 存到相册").click();
-  await expect
-    .poll(() => page.evaluate(() => (window as unknown as { shared?: unknown }).shared))
-    .toEqual([{ name: expect.stringMatching(/^heytea-cup-\d{8}-\d{6}\.png$/), type: "image/png" }]);
-});
-
-test("浏览器不支持分享图片时不显示分享按钮", async ({ editor }) => {
-  await editor.open();
-  await editor.newBlankCanvas();
-  await expect(editor.button("分享 / 存到相册")).toBeHidden();
-});
