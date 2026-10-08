@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -29,6 +31,7 @@ type fakeGateway struct {
 	lastLogin  usecase.PhoneLogin
 	loginToken string
 	loginErr   error
+	userErr    error
 }
 
 func (f *fakeGateway) UploadSticker(_ context.Context, req usecase.StickerUpload) (domain.Result, error) {
@@ -42,6 +45,9 @@ func (f *fakeGateway) SaveDraft(_ context.Context, req usecase.DraftSave) (domai
 }
 
 func (f *fakeGateway) UserInfo(_ context.Context, token string) (domain.User, error) {
+	if f.userErr != nil {
+		return domain.User{}, f.userErr
+	}
 	if token != "file-token" && token != "given-token" && token != "login-token" {
 		return domain.User{}, &usecase.BusinessError{Code: 401, Message: "登录态失效"}
 	}
@@ -353,5 +359,47 @@ func TestLoginBadJSON(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func getUserError(t *testing.T, userErr error) (int, string) {
+	t.Helper()
+	srv := httptest.NewServer(newTestServer(&fakeGateway{userErr: userErr}))
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/api/user?token=file-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, out.Message
+}
+
+// 与喜茶通信失败：返回 502 和简短的类别说明，原始细节只进服务端日志
+func TestUpstreamFailureHidesDetails(t *testing.T) {
+	cases := []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("%w: Post \"https://app-go.heytea.com/x\": context deadline exceeded", usecase.ErrUpstreamUnreachable), "连接喜茶超时或中断"},
+		{fmt.Errorf("%w: HTTP 503: <html>gateway</html>", usecase.ErrUpstreamBadResponse), "喜茶服务暂时异常"},
+	}
+	for _, c := range cases {
+		status, message := getUserError(t, c.err)
+		if status != http.StatusBadGateway || message != c.want {
+			t.Fatalf("got %d %q, want 502 %q", status, message, c.want)
+		}
+	}
+}
+
+func TestUnexpectedErrorIsGeneric(t *testing.T) {
+	status, message := getUserError(t, errors.New("boom: internal detail"))
+	if status != http.StatusInternalServerError || message != "服务内部错误" {
+		t.Fatalf("got %d %q", status, message)
 	}
 }

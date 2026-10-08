@@ -74,7 +74,7 @@ func TestUploadSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out.Message != "上传成功" {
+	if out.Message != "发布成功" {
 		t.Fatalf("message = %q", out.Message)
 	}
 	if signer.calls != 1 || len(gw.uploads) != 1 {

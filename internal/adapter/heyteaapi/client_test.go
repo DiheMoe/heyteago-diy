@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -234,7 +235,26 @@ func TestHTTPErrorSurfaces(t *testing.T) {
 		_, _ = w.Write([]byte("bad gateway"))
 	})
 	_, err := c.UserInfo(context.Background(), "tok")
-	if err == nil || !strings.Contains(err.Error(), "502") {
-		t.Fatalf("err = %v, want HTTP 502 mention", err)
+	if !errors.Is(err, usecase.ErrUpstreamBadResponse) || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("err = %v, want ErrUpstreamBadResponse mentioning 502", err)
+	}
+}
+
+func TestMalformedResponseIsBadResponse(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	})
+	_, err := c.UserInfo(context.Background(), "tok")
+	if !errors.Is(err, usecase.ErrUpstreamBadResponse) {
+		t.Fatalf("err = %v, want ErrUpstreamBadResponse", err)
+	}
+}
+
+func TestUnreachableUpstream(t *testing.T) {
+	c, srv := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {})
+	srv.Close()
+	_, err := c.UserInfo(context.Background(), "tok")
+	if !errors.Is(err, usecase.ErrUpstreamUnreachable) {
+		t.Fatalf("err = %v, want ErrUpstreamUnreachable", err)
 	}
 }
