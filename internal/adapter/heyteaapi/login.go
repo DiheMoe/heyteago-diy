@@ -112,11 +112,11 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 	// 请求途中会话续期会造成 ticket/密钥错配（实测解密失败）。
 	sess, err := c.transport.Session(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("获取喜茶安全传输会话失败: %w", err)
+		return nil, fmt.Errorf("%w: 获取安全传输会话失败: %w", usecase.ErrUpstreamBadResponse, err)
 	}
 	raw, err = sess.Encrypt(path, raw)
 	if err != nil {
-		return nil, fmt.Errorf("喜茶安全传输加密请求体失败: %w", err)
+		return nil, fmt.Errorf("%w: 安全传输加密请求体失败: %w", usecase.ErrUpstreamBadResponse, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(raw))
@@ -132,16 +132,16 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求喜茶失败: %w", err)
+		return nil, fmt.Errorf("%w: %w", usecase.ErrUpstreamUnreachable, err)
 	}
 	defer resp.Body.Close()
 
 	respRaw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, fmt.Errorf("读取喜茶响应失败: %w", err)
+		return nil, fmt.Errorf("%w: 读取响应失败: %w", usecase.ErrUpstreamUnreachable, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("喜茶返回 HTTP %d: %.200s", resp.StatusCode, respRaw)
+		return nil, fmt.Errorf("%w: HTTP %d: %.200s", usecase.ErrUpstreamBadResponse, resp.StatusCode, respRaw)
 	}
 
 	var env struct {
@@ -150,7 +150,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(respRaw, &env); err != nil {
-		return nil, fmt.Errorf("喜茶响应解析失败: %.200s", respRaw)
+		return nil, fmt.Errorf("%w: 响应解析失败: %.200s", usecase.ErrUpstreamBadResponse, respRaw)
 	}
 	if env.Code != 0 {
 		return nil, &usecase.BusinessError{Code: env.Code, Message: env.Message}
@@ -162,7 +162,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, extra map[
 	if err := json.Unmarshal(env.Data, &sdata); err == nil && sdata.Blob != "" {
 		plain, err := sess.Decrypt(sdata.Blob)
 		if err != nil {
-			return nil, fmt.Errorf("喜茶安全传输解密响应失败: %w", err)
+			return nil, fmt.Errorf("%w: 安全传输解密响应失败: %w", usecase.ErrUpstreamBadResponse, err)
 		}
 		return plain, nil
 	}

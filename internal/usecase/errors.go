@@ -16,6 +16,12 @@ var (
 	ErrMissingTicket     = errors.New("缺少人机验证 ticket")
 )
 
+// 与喜茶通信失败，transport 层映射为 502：响应里只给这两句简短说明，具体原因写服务端日志。
+var (
+	ErrUpstreamUnreachable = errors.New("连接喜茶超时或中断")
+	ErrUpstreamBadResponse = errors.New("喜茶服务暂时异常")
+)
+
 // BusinessError 表示喜茶上游返回了非 0 业务码。
 type BusinessError struct {
 	Code    int

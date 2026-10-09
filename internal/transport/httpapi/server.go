@@ -212,12 +212,19 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusBadRequest
 		body["message"] = be.Message
 		body["code"] = be.Code
+	case errors.Is(err, usecase.ErrUpstreamUnreachable):
+		status = http.StatusBadGateway
+		body["message"] = usecase.ErrUpstreamUnreachable.Error()
+		log.Printf("[http] 喜茶通信失败: %v", err)
+	case errors.Is(err, usecase.ErrUpstreamBadResponse):
+		status = http.StatusBadGateway
+		body["message"] = usecase.ErrUpstreamBadResponse.Error()
+		log.Printf("[http] 喜茶通信失败: %v", err)
 	case errors.As(err, &se):
 		status = http.StatusBadGateway
 	default:
-		if strings.Contains(err.Error(), "喜茶") {
-			status = http.StatusBadGateway
-		}
+		body["message"] = "服务内部错误"
+		log.Printf("[http] 未分类错误: %v", err)
 	}
 	writeJSON(w, status, body)
 }

@@ -371,8 +371,8 @@ func TestSendLoginSmsSessionError(t *testing.T) {
 	})
 
 	err := c.SendLoginSms(context.Background(), usecase.LoginSms{Mobile: "13800138000"})
-	if err == nil || !strings.Contains(err.Error(), "获取喜茶安全传输会话失败") {
-		t.Fatalf("err = %v, want 获取喜茶安全传输会话失败", err)
+	if !errors.Is(err, usecase.ErrUpstreamBadResponse) || !strings.Contains(err.Error(), "获取安全传输会话失败") {
+		t.Fatalf("err = %v, want ErrUpstreamBadResponse (获取安全传输会话失败)", err)
 	}
 	if called {
 		t.Fatal("取会话失败时不应发出 HTTP 请求")
@@ -387,8 +387,8 @@ func TestSendLoginSmsEncryptError(t *testing.T) {
 	})
 
 	err := c.SendLoginSms(context.Background(), usecase.LoginSms{Mobile: "13800138000"})
-	if err == nil || !strings.Contains(err.Error(), "喜茶安全传输加密请求体失败") {
-		t.Fatalf("err = %v, want 喜茶安全传输加密请求体失败", err)
+	if !errors.Is(err, usecase.ErrUpstreamBadResponse) || !strings.Contains(err.Error(), "安全传输加密请求体失败") {
+		t.Fatalf("err = %v, want ErrUpstreamBadResponse (安全传输加密请求体失败)", err)
 	}
 	if called {
 		t.Fatal("加密失败时不应发出 HTTP 请求")

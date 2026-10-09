@@ -45,7 +45,7 @@ func (s *StickerService) Upload(ctx context.Context, in StickerUpload) (UploadOu
 	if err != nil {
 		return UploadOutput{}, err
 	}
-	return UploadOutput{Message: "上传成功", Data: res.Data}, nil
+	return UploadOutput{Message: "发布成功", Data: res.Data}, nil
 }
 
 // SaveDraft 保存杯贴草稿（官方 App 进画布时会拉取该草稿继续编辑）。

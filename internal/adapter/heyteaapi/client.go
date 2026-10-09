@@ -104,16 +104,16 @@ func (c *Client) UserInfo(ctx context.Context, token string) (domain.User, error
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return domain.User{}, fmt.Errorf("请求喜茶失败: %w", err)
+		return domain.User{}, fmt.Errorf("%w: %w", usecase.ErrUpstreamUnreachable, err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return domain.User{}, fmt.Errorf("读取喜茶响应失败: %w", err)
+		return domain.User{}, fmt.Errorf("%w: 读取响应失败: %w", usecase.ErrUpstreamUnreachable, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return domain.User{}, fmt.Errorf("喜茶返回 HTTP %d: %.200s", resp.StatusCode, raw)
+		return domain.User{}, fmt.Errorf("%w: HTTP %d: %.200s", usecase.ErrUpstreamBadResponse, resp.StatusCode, raw)
 	}
 
 	var env struct {
@@ -122,14 +122,14 @@ func (c *Client) UserInfo(ctx context.Context, token string) (domain.User, error
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return domain.User{}, fmt.Errorf("喜茶响应解析失败: %.200s", raw)
+		return domain.User{}, fmt.Errorf("%w: 响应解析失败: %.200s", usecase.ErrUpstreamBadResponse, raw)
 	}
 	if env.Code != 0 {
 		return domain.User{}, &usecase.BusinessError{Code: env.Code, Message: env.Message}
 	}
 	var user domain.User
 	if err := json.Unmarshal(env.Data, &user); err != nil {
-		return domain.User{}, fmt.Errorf("用户信息解析失败: %w", err)
+		return domain.User{}, fmt.Errorf("%w: 用户信息解析失败: %w", usecase.ErrUpstreamBadResponse, err)
 	}
 	return user, nil
 }
@@ -143,21 +143,21 @@ func (c *Client) post(ctx context.Context, url string, body *bytes.Buffer, conte
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return domain.Result{}, fmt.Errorf("请求喜茶失败: %w", err)
+		return domain.Result{}, fmt.Errorf("%w: %w", usecase.ErrUpstreamUnreachable, err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return domain.Result{}, fmt.Errorf("读取喜茶响应失败: %w", err)
+		return domain.Result{}, fmt.Errorf("%w: 读取响应失败: %w", usecase.ErrUpstreamUnreachable, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return domain.Result{}, fmt.Errorf("喜茶返回 HTTP %d: %.200s", resp.StatusCode, raw)
+		return domain.Result{}, fmt.Errorf("%w: HTTP %d: %.200s", usecase.ErrUpstreamBadResponse, resp.StatusCode, raw)
 	}
 
 	var res domain.Result
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return domain.Result{}, fmt.Errorf("喜茶响应解析失败: %.200s", raw)
+		return domain.Result{}, fmt.Errorf("%w: 响应解析失败: %.200s", usecase.ErrUpstreamBadResponse, raw)
 	}
 	return res, nil
 }
